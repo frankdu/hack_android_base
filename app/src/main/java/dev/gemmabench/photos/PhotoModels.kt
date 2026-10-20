@@ -7,13 +7,19 @@ import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import java.io.StringReader
 import dev.gemmabench.benchmark.ModelSlot
+import dev.gemmabench.benchmark.Measurement
 
-data class DevicePhoto(val id: Long, val uri: String, val name: String, val mimeType: String? = null)
+data class DevicePhoto(
+    val id: Long, val uri: String, val name: String, val mimeType: String? = null,
+    val sourceRevision: String = "",
+)
 
 /** Coordinates use the upright image, origin top-left, on a 0..1000 scale. */
 data class ObjectBox(val name: String, val left: Float, val top: Float, val right: Float, val bottom: Float)
 
-enum class PhotoStatus { PENDING, ANALYZING, COMPLETED, FAILED }
+enum class PhotoStatus { PENDING, ANALYZING, COMPLETED, FAILED, SKIPPED }
+
+data class PhotoAttempt(val attempt: Int, val outputTokenLimit: Int, val measurement: Measurement)
 
 data class PhotoBatchProgress(val finished: Int = 0, val total: Int = 0, val failed: Int = 0) {
     val fraction: Float get() = if (total == 0) 0f else finished.toFloat() / total
@@ -34,6 +40,12 @@ data class PhotoResult(
     val decodeTokens: Int? = null,
     val outputTokenLimit: Int? = null,
     val errorKind: String? = null,
+    val skippedReason: String? = null,
+    val measurements: List<PhotoAttempt> = emptyList(),
+    val cacheKey: String? = null,
+    val fromCache: Boolean = false,
+    val computedAtEpochMs: Long? = null,
+    val visionBackend: String? = null,
 )
 
 data class PhotoDemoState(
@@ -51,7 +63,7 @@ data class PhotoDemoState(
     val unsupportedSkipped: Int = 0,
 ) {
     val batchProgress: PhotoBatchProgress get() = PhotoBatchProgress(
-        finished = results.count { it.status == PhotoStatus.COMPLETED || it.status == PhotoStatus.FAILED },
+        finished = results.count { it.status in setOf(PhotoStatus.COMPLETED, PhotoStatus.FAILED, PhotoStatus.SKIPPED) },
         total = results.size,
         failed = results.count { it.status == PhotoStatus.FAILED },
     )

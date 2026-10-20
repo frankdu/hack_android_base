@@ -1,0 +1,195 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "9f41d8d8c487b7321dc661677ba9ce87",
+    "entities": [
+      {
+        "tableName": "photo_analysis",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`cacheKey` TEXT NOT NULL, `photoUri` TEXT NOT NULL, `photoId` INTEGER NOT NULL, `photoName` TEXT NOT NULL, `mimeType` TEXT, `sourceRevision` TEXT NOT NULL, `inputSha256` TEXT, `modelIdentifier` TEXT NOT NULL, `modelVariant` TEXT NOT NULL, `modelLabel` TEXT NOT NULL, `textBackend` TEXT NOT NULL, `visionBackend` TEXT, `runtimeVersion` TEXT NOT NULL, `requestJson` TEXT NOT NULL, `status` TEXT NOT NULL, `objectsJson` TEXT NOT NULL, `rawOutput` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `elapsedMs` REAL, `measurementsJson` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `decodeTokens` INTEGER, `outputTokenLimit` INTEGER, `error` TEXT, `errorKind` TEXT, `skippedReason` TEXT, `computedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
+        "fields": [
+          {
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoUri",
+            "columnName": "photoUri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoId",
+            "columnName": "photoId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "photoName",
+            "columnName": "photoName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceRevision",
+            "columnName": "sourceRevision",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inputSha256",
+            "columnName": "inputSha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "modelIdentifier",
+            "columnName": "modelIdentifier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelVariant",
+            "columnName": "modelVariant",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelLabel",
+            "columnName": "modelLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textBackend",
+            "columnName": "textBackend",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "visionBackend",
+            "columnName": "visionBackend",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "runtimeVersion",
+            "columnName": "runtimeVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestJson",
+            "columnName": "requestJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "objectsJson",
+            "columnName": "objectsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawOutput",
+            "columnName": "rawOutput",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "elapsedMs",
+            "columnName": "elapsedMs",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "measurementsJson",
+            "columnName": "measurementsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "decodeTokens",
+            "columnName": "decodeTokens",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outputTokenLimit",
+            "columnName": "outputTokenLimit",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorKind",
+            "columnName": "errorKind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "skippedReason",
+            "columnName": "skippedReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "computedAtEpochMs",
+            "columnName": "computedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "cacheKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_photo_analysis_photoUri",
+            "unique": false,
+            "columnNames": [
+              "photoUri"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_photo_analysis_photoUri` ON `${TABLE_NAME}` (`photoUri`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9f41d8d8c487b7321dc661677ba9ce87')"
+    ]
+  }
+}

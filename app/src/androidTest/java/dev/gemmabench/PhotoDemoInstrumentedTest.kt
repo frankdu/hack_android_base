@@ -67,6 +67,8 @@ class PhotoDemoInstrumentedTest {
             val second = library.nextBatch(first.photos.single().id, 1)
             assertEquals(photos.first(), second.photos.single().id)
             assertEquals(0, first.unsupportedSkipped)
+            assertEquals(8, first.skippedPhotos.size)
+            assertTrue(first.skippedPhotos.all { it.reason == "screenshot" })
         } finally { created.forEach { resolver.delete(it, null, null) } }
         assertEquals(baseline, library.countEligiblePhotos())
     }
@@ -106,6 +108,8 @@ class PhotoDemoInstrumentedTest {
             assertEquals(photos.takeLast(2).reversed(), first.photos.map { it.id })
             assertTrue(first.hasMore)
             assertEquals(2, first.unsupportedSkipped)
+            assertEquals(2, first.skippedPhotos.size)
+            assertTrue(first.skippedPhotos.all { it.reason == "unsupported_mime_type" })
             val second = library.nextBatch(first.photos.last().id, 1)
             assertEquals(photos.first(), second.photos.single().id)
             assertEquals(1, second.unsupportedSkipped)

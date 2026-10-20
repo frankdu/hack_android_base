@@ -1,7 +1,11 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
+    id("androidx.room")
 }
+
+room { schemaDirectory("$projectDir/schemas") }
 
 android {
     namespace = "dev.gemmabench"
@@ -43,6 +47,8 @@ dependencies {
         runtimeOnly("com.google.ai.edge.litert:litert-npu-runtime-google-tensor:2.3.0")
     }
     implementation("com.google.code.gson:gson:2.13.2")
+    implementation("androidx.room:room-runtime:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation("androidx.test:runner:1.7.0")

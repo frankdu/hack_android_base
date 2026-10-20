@@ -49,6 +49,7 @@ class LabController(private val app: Application) {
     private val downloads = SystemModelDownloads(app)
     private val runtime = LiteRtRuntime(app, storage::file)
     private val photoLibrary = PhotoLibrary(app)
+    private val photoCache by lazy { PhotoAnalysisCache(PhotoCacheDatabase.getInstance(app).photoAnalysis()) }
     private val runner = BenchmarkRunner(runtime, storage::device, storage::snapshot)
     private val mutable = MutableStateFlow(LabState(busy = true))
     val state = mutable.asStateFlow()
@@ -238,12 +239,19 @@ class LabController(private val app: Application) {
                 )
                 settings.validate()
                 validateBackend(model, settings)
+                val cacheRequest = PhotoCacheRequest.create(model, settings,
+                    visionAccelerator(metadata?.visionBackends.orEmpty(), accelerator, runtime.tpuSupport.available)?.name,
+                    BuildConfig.LITERT_LM_VERSION)
                 if (resume) {
                     require(state.value.photos.modelSha256 == model.sha256 && state.value.photos.textBackend == accelerator.name) {
                         "Resume with the same model and backend, or start over."
                     }
                 } else {
                     val page = photoLibrary.nextBatch(state.value.photos.beforeId, batchSize)
+                    for (skipped in page.skippedPhotos) {
+                        photoCache.save(cacheRequest, null, PhotoResult(skipped.photo,
+                            status = PhotoStatus.SKIPPED, skippedReason = skipped.reason))
+                    }
                     photoLibrary.clearPreviews()
                     mutable.update { it.copy(photos = PhotoDemoState(
                         results = page.photos.map { photo -> PhotoResult(photo) },
@@ -261,13 +269,23 @@ class LabController(private val app: Application) {
                     if (state.value.stopRequested) break
                     if (result.status != PhotoStatus.PENDING) continue
                     mutable.update { it.copy(progress = "Batch ${it.photos.batchNumber} · photo ${index + 1}/${batch.size} · ${result.photo.name}", output = "") }
-                    updatePhoto(index) { it.copy(status = PhotoStatus.ANALYZING, error = null) }
+                    updatePhoto(index) { PhotoResult(it.photo, status = PhotoStatus.ANALYZING) }
                     var stage = "image_decode"
+                    var inputSha256: String? = null
                     try {
                         val prepared = photoLibrary.prepare(result.photo)
                         updatePhoto(index) { it.copy(previewPath = prepared.file.absolutePath, width = prepared.width, height = prepared.height) }
                         if (state.value.stopRequested) break
                         val jpeg = prepared.file.readBytes()
+                        inputSha256 = PhotoCacheRequest.sha256(jpeg)
+                        stage = "cache_lookup"
+                        val cached = photoCache.completed(cacheRequest.key(result.photo, inputSha256), result.photo)
+                        if (cached != null) {
+                            updatePhoto(index) { cached.copy(previewPath = prepared.file.absolutePath) }
+                            mutable.update { it.copy(photos = it.photos.copy(visionBackend = cached.visionBackend)) }
+                            continue
+                        }
+                        if (state.value.stopRequested) break
                         val objects = analyzePhotoResponse(settings,
                             infer = { request ->
                                 stage = "inference"
@@ -279,7 +297,9 @@ class LabController(private val app: Application) {
                                 mutable.update { it.copy(photos = it.photos.copy(visionBackend = runtime.photoVisionBackend)) }
                                 updatePhoto(index) { it.copy(rawOutput = measurement.output.orEmpty(),
                                     elapsedMs = (it.elapsedMs ?: 0.0) + measurement.elapsedMs, attempts = attempt,
-                                    decodeTokens = measurement.metrics.decodeTokens, outputTokenLimit = request.outputTokens) }
+                                    decodeTokens = measurement.metrics.decodeTokens, outputTokenLimit = request.outputTokens,
+                                    measurements = it.measurements + PhotoAttempt(attempt, request.outputTokens, measurement),
+                                    visionBackend = runtime.photoVisionBackend) }
                             },
                             onRetry = {
                                 mutable.update { it.copy(progress = "Photo ${index + 1}/${batch.size} · retrying incomplete JSON with a shorter object list…") }
@@ -292,6 +312,7 @@ class LabController(private val app: Application) {
                         break
                     } catch (e: Exception) {
                         if (state.value.stopRequested) break
+                        if (stage == "cache_lookup") throw e
                         val kind = if (e is PhotoResponseException) "model_json" else stage
                         val failed = state.value.photos.results[index]
                         Log.w("GemmaPhotos", "photo=${index + 1}/${batch.size} model=${slot.name} text=$accelerator stage=$kind " +
@@ -299,6 +320,8 @@ class LabController(private val app: Application) {
                             "chars=${failed.rawOutput.length} exception=${e.javaClass.simpleName}")
                         updatePhoto(index) { it.copy(status = PhotoStatus.FAILED, errorKind = kind, error = e.message ?: e.javaClass.simpleName) }
                     }
+                    val saved = photoCache.save(cacheRequest, inputSha256, state.value.photos.results[index])
+                    updatePhoto(index) { saved }
                 }
                 mutable.update { it.copy(progress = when {
                     it.stopRequested -> "Photo analysis stopped. Resume this batch or start over."
@@ -356,6 +379,10 @@ class LabController(private val app: Application) {
                         "rawOutput" to result.rawOutput, "error" to result.error,
                         "attempts" to result.attempts, "decodeTokens" to result.decodeTokens,
                         "outputTokenLimit" to result.outputTokenLimit, "errorKind" to result.errorKind,
+                        "skippedReason" to result.skippedReason, "measurements" to result.measurements,
+                        "cacheKey" to result.cacheKey, "fromCache" to result.fromCache,
+                        "computedAtEpochMs" to result.computedAtEpochMs,
+                        "visionBackend" to result.visionBackend,
                     ) },
                 )
                 app.contentResolver.openOutputStream(uri, "wt").use {

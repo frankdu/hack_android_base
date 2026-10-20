@@ -36,7 +36,11 @@ object PhotoPermissions {
     }
 }
 
-data class PhotoPage(val photos: List<DevicePhoto>, val hasMore: Boolean, val unsupportedSkipped: Int = 0)
+data class SkippedPhoto(val photo: DevicePhoto, val reason: String)
+data class PhotoPage(
+    val photos: List<DevicePhoto>, val hasMore: Boolean, val unsupportedSkipped: Int = 0,
+    val skippedPhotos: List<SkippedPhoto> = emptyList(),
+)
 data class PreparedPhoto(val file: File, val width: Int, val height: Int)
 
 class PhotoLibrary(private val context: Context) {
@@ -45,6 +49,7 @@ class PhotoLibrary(private val context: Context) {
     private val projection = arrayOf(
         MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.MIME_TYPE,
         MediaStore.Images.Media.RELATIVE_PATH, MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+        MediaStore.Images.Media.GENERATION_MODIFIED, MediaStore.Images.Media.DATE_MODIFIED, MediaStore.Images.Media.SIZE,
     )
 
     private fun Cursor.isScreenshot() = PhotoEligibility.isScreenshot(getString(1), getString(3), getString(4))
@@ -77,8 +82,8 @@ class PhotoLibrary(private val context: Context) {
             }
         }
         val found = mutableListOf<DevicePhoto>()
+        val skippedPhotos = mutableListOf<SkippedPhoto>()
         var scanBefore = beforeId
-        var skipped = 0
         // Scan past excluded rows before deciding whether a page is full/exhausted.
         while (found.size <= size) {
             var scanned = 0
@@ -90,20 +95,27 @@ class PhotoLibrary(private val context: Context) {
                     scanned++
                     val photoId = cursor.getLong(0)
                     scanBefore = photoId
-                    if (cursor.isScreenshot()) continue
                     val mime = cursor.getString(2)
-                    if (!cursor.isSupported()) {
-                        // Lookahead rows will be scanned again on the next page; count them there.
-                        if (found.size < size) skipped++
+                    val photo = DevicePhoto(photoId, ContentUris.withAppendedId(collection, photoId).toString(),
+                        cursor.getString(1) ?: "Photo $photoId", mime,
+                        "${cursor.getLong(5)}:${cursor.getLong(6)}:${cursor.getLong(7)}")
+                    if (cursor.isScreenshot()) {
+                        skippedPhotos += SkippedPhoto(photo, "screenshot")
                         continue
                     }
-                    found += DevicePhoto(photoId, ContentUris.withAppendedId(collection, photoId).toString(),
-                        cursor.getString(1) ?: "Photo $photoId", mime)
+                    if (!cursor.isSupported()) {
+                        skippedPhotos += SkippedPhoto(photo, "unsupported_mime_type")
+                        continue
+                    }
+                    found += photo
                 }
             }
             if (scanned < size + 1) break
         }
-        return PhotoPage(found.take(size), found.size > size, skipped)
+        val hasMore = found.size > size
+        // Defer lookahead exclusions to the next page, but retain trailing exclusions at end of library.
+        val pageSkipped = if (hasMore) skippedPhotos.filter { it.photo.id > found[size - 1].id } else skippedPhotos
+        return PhotoPage(found.take(size), hasMore, pageSkipped.count { it.reason == "unsupported_mime_type" }, pageSkipped)
     }
 
     /** ImageDecoder applies EXIF orientation before resizing. Only one full decode is held at a time. */

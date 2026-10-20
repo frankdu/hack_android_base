@@ -203,7 +203,7 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
                         Text(progress.label, style = MaterialTheme.typography.bodySmall)
                     }
                     if (photos.unsupportedSkipped > 0) Text("Skipped ${photos.unsupportedSkipped} image file(s) unsupported by Android's photo decoder (such as SVG).", style = MaterialTheme.typography.bodySmall)
-                    Text("Only the current batch is retained. Export before loading the next batch. Results clear when the app process exits.", style = MaterialTheme.typography.bodySmall)
+                    Text("Results are cached on this device. Starting over or reopening the app reuses matching analyses. Only the current batch is shown.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (!photos.hasMore) Text("End of accessible photos. Start over to include newly added photos.")
             }
@@ -225,8 +225,9 @@ private fun PhotoResultCard(result: PhotoResult, streaming: String) {
             Text(when (result.status) {
                 PhotoStatus.PENDING -> "Waiting"
                 PhotoStatus.ANALYZING -> "Analyzing…"
-                PhotoStatus.COMPLETED -> "${result.objects.size} object(s) · ${((result.elapsedMs ?: 0.0) / 1000).roundToInt()} s"
+                PhotoStatus.COMPLETED -> "${result.objects.size} object(s) · ${((result.elapsedMs ?: 0.0) / 1000).roundToInt()} s" + if (result.fromCache) " · Cached" else ""
                 PhotoStatus.FAILED -> "Analysis failed"
+                PhotoStatus.SKIPPED -> "Skipped: ${result.skippedReason.orEmpty()}"
             }, style = MaterialTheme.typography.bodySmall)
             if (result.attempts > 1) Text("Retried incomplete JSON · ${result.attempts} attempts", style = MaterialTheme.typography.bodySmall)
             PhotoOverlay(result)

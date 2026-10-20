@@ -122,7 +122,7 @@ private fun StatusCard(state: LabState, controller: LabController) {
 private fun ModelsPage(state: LabState, controller: LabController) {
     var pending by rememberSaveable { mutableStateOf(ModelSlot.E2B.name) }
     var advanced by rememberSaveable { mutableStateOf(false) }
-    var wifiOnly by rememberSaveable { mutableStateOf(true) }
+    var wifiOnly by rememberSaveable { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { controller.importModel(ModelSlot.valueOf(pending), it) }
     }
