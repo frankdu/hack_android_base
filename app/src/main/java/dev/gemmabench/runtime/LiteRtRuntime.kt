@@ -6,11 +6,15 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.BenchmarkInfo
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ModelInfo
+import com.google.ai.edge.litertlm.Modality
 import com.google.ai.edge.litertlm.ThinkingConfig
 import com.google.ai.edge.litertlm.benchmark
 import dev.gemmabench.benchmark.*
@@ -24,6 +28,8 @@ import kotlinx.coroutines.flow.collect
 class LiteRtRuntime(private val context: Context, private val modelFile: (ModelArtifact) -> File) : InferenceRuntime {
     private var engine: Engine? = null
     private var engineKey: String? = null
+    var photoVisionBackend: String? = null
+        private set
     private val stopped = AtomicBoolean(false)
     private val conversationLock = Any()
     private var activeConversation: Conversation? = null
@@ -51,6 +57,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
         engine?.let { if (it.isInitialized()) it.close() }
         engine = null
         engineKey = null
+        photoVisionBackend = null
     }
 
     override suspend fun measure(
@@ -63,10 +70,18 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
         throw IllegalStateException("Cannot load native inference libraries: ${e.message}", e)
     }
 
+    /** Shares worker/cancellation with text runs, but uses a distinct engine with vision enabled. */
+    suspend fun analyzePhoto(model: ModelArtifact, settings: RunSettings, jpeg: ByteArray, onText: (String) -> Unit): Measurement = try {
+        measureNative(model, settings, onText, jpeg)
+    } catch (e: LinkageError) {
+        throw IllegalStateException("Cannot load native vision libraries: ${e.message}", e)
+    }
+
     private suspend fun measureNative(
         model: ModelArtifact,
         settings: RunSettings,
         onText: (String) -> Unit,
+        jpeg: ByteArray? = null,
     ): Measurement {
         check(!stopped.get()) { "Run stopped." }
         val file = modelFile(model)
@@ -90,16 +105,32 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             return Measurement(info.metrics(), elapsedMs(start))
         }
 
-        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}"
+        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}:vision=${jpeg != null}"
         val reused = engine != null && key == engineKey
         var loadMs: Double? = null
         if (!reused) {
             unload()
+            var vision: Backend? = null
+            if (jpeg != null) {
+                ModelInfo.from(file.absolutePath).use { info ->
+                    require(info.inputModalities().vision) { "This model has no vision encoder. Import a multimodal Gemma model." }
+                    val supported = info.supportedBackends(Modality.VISION).map { it.name }
+                    // Empty metadata means no backend constraint, as for the text executor.
+                    photoVisionBackend = when {
+                        supported.isEmpty() || "GPU" in supported -> "GPU"
+                        "CPU" in supported -> "CPU"
+                        else -> error("This vision encoder requires ${supported.joinToString()}; use a standard CPU/GPU artifact.")
+                    }
+                    vision = if (photoVisionBackend == "GPU") Backend.GPU() else Backend.CPU()
+                }
+            }
             ExperimentalFlags.enableBenchmark = true
             ExperimentalFlags.enableSpeculativeDecoding = settings.speculativeDecoding
             val created = Engine(EngineConfig(
                 modelPath = file.absolutePath,
                 backend = backend(settings.accelerator),
+                visionBackend = vision,
+                maxNumImages = if (jpeg != null) 1 else null,
                 maxNumTokens = settings.contextTokens,
                 cacheDir = cache(model, settings),
             ))
@@ -131,7 +162,9 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             var firstVisibleMs: Double? = null
             var lastPublish = 0L
             val requestStart = SystemClock.elapsedRealtimeNanos()
-            conversation.sendMessageAsync(settings.prompt).collect { message ->
+            val contents = if (jpeg == null) Contents.of(settings.prompt)
+                else Contents.of(Content.ImageBytes(jpeg), Content.Text(settings.prompt))
+            conversation.sendMessageAsync(contents).collect { message ->
                 val text = message.toString()
                 if (text.isNotEmpty()) {
                     if (firstVisibleMs == null) firstVisibleMs = elapsedMs(requestStart)
@@ -144,6 +177,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                 }
             }
             val elapsed = elapsedMs(requestStart)
+            if (stopped.get()) throw CancellationException("Run stopped.")
             onText(output.toString())
             return Measurement(
                 metrics = conversation.getBenchmarkInfo().metrics(),

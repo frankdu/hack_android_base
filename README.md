@@ -62,6 +62,20 @@ Then tap **Import files staged by ADB**. Staging files are retained until you re
 
 Native backend failures are reported, never silently rerouted. A failed model does not prevent the next selected model from being attempted. Fixed-token cancellation takes effect after the current native invocation returns; prompt-mode cancellation requests native stream cancellation. A native driver crash cannot be converted into a recoverable Kotlin error.
 
+## Photo objects demo
+
+1. Download E2B or E4B, then open **Photos → Grant photo access**. Android 14+ supports selected-photo access as well as the full library; Android 13 uses image permission and Android 12 uses storage permission. Use **Change photo access** to reselect, or **App permission settings** after a permanent denial.
+2. Choose a model, CPU/GPU text backend, and **batch size** (default **10**, range 1–50). Vision uses the backend declared by the artifact (CPU for the downloaded standard E2B artifact tested here). When unconstrained or when both are available, the demo selects GPU. It checks native vision metadata before inference and records the selected backend; initialization errors are reported without retrying on another backend.
+3. Tap **Analyze next batch**. Photos are read from MediaStore in descending media-ID order (newest added first). Each photo gets a fresh Gemma conversation. The engine is reused within the batch and released afterward. Photos stay on the device.
+4. Review object names, colored bounding boxes, and numerical `[left, top, right, bottom]` coordinates normalized to 0–1000 with origin at the upright image's top-left. These are **Gemma estimates**, not pixel segmentation masks. Invalid output is shown as a per-photo error with the raw response; other photos continue.
+5. **Export JSON** before loading the next batch to save object coordinates, photo references, model/hash/backend, errors and raw responses. Only the current batch is retained in memory. Resized previews are cached privately and cleared for the next batch/reset/app startup; results are not restored after process exit.
+
+**Stop run** or backgrounding the app requests native cancellation. **Resume batch** continues pending photos. **Start over** restarts from the newest accessible photos. Changing permission scope also resets the scan. A keyset cursor avoids duplicates/skips when photos are added or deleted between batches; newly added photos appear after starting over. Deleted or revoked photos produce individual errors. An empty or exhausted library is reported explicitly.
+
+Images are decoded one at a time off the UI thread with EXIF orientation applied, aspect-preserving downsampling to at most 1024 pixels per side, then sent as JPEG bytes through LiteRT-LM. Previews use the same oriented image so coordinates and overlays align. No personal photo content is logged by the demo.
+
+Implementation references: [Android partial photo access](https://developer.android.com/about/versions/14/changes/partial-photo-video-access), [LiteRT-LM image inputs and vision backend](https://developers.google.com/edge/litert-lm/android).
+
 ## Documentation and checks
 
 - [Initial research](docs/RESEARCH_0.md)

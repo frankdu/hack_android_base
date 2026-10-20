@@ -41,7 +41,7 @@ private val colors = lightColorScheme(
 fun LabApp(state: LabState, controller: LabController) {
     MaterialTheme(colorScheme = colors) {
         var tab by rememberSaveable { mutableIntStateOf(0) }
-        val tabs = listOf("Models", "Benchmark", "Playground", "Results")
+        val tabs = listOf("Models", "Benchmark", "Playground", "Results", "Photos")
         Scaffold(
             containerColor = Paper,
             bottomBar = {
@@ -49,7 +49,7 @@ fun LabApp(state: LabState, controller: LabController) {
                     tabs.forEachIndexed { index, title ->
                         NavigationBarItem(
                             selected = tab == index, onClick = { tab = index },
-                            icon = { Text(listOf("◈", "▥", "✳", "≡")[index], style = MaterialTheme.typography.titleLarge) },
+                            icon = { Text(listOf("◈", "▥", "✳", "≡", "▧")[index], style = MaterialTheme.typography.titleLarge) },
                             label = { Text(title) },
                         )
                     }
@@ -57,7 +57,8 @@ fun LabApp(state: LabState, controller: LabController) {
             },
         ) { insets ->
             Column(
-                Modifier.padding(insets).fillMaxSize().verticalScroll(rememberScrollState())
+                Modifier.padding(insets).fillMaxSize()
+                    .then(if (tab == 4) Modifier else Modifier.verticalScroll(rememberScrollState()))
                     .padding(horizontal = 20.dp, vertical = 16.dp).widthIn(max = 840.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -79,9 +80,12 @@ fun LabApp(state: LabState, controller: LabController) {
                     1 -> RunPage(state, controller, playground = false)
                     2 -> RunPage(state, controller, playground = true)
                     3 -> ResultsPage(state, controller)
+                    4 -> PhotosPage(state, controller, Modifier.weight(1f))
                 }
-                Text("Prototype 0.1 · Native token counts · No automatic backend fallback", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
+                if (tab != 4) {
+                    Text("Prototype 0.1 · Native token counts · No automatic backend fallback", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                }
             }
         }
     }

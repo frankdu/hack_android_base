@@ -8,6 +8,8 @@ import dev.gemmabench.data.CsvExport
 import dev.gemmabench.data.LabStorage
 import dev.gemmabench.runtime.LiteRtRuntime
 import dev.gemmabench.download.*
+import dev.gemmabench.photos.*
+import com.google.gson.GsonBuilder
 import java.util.concurrent.Executors
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,7 @@ data class LabState(
     val tensorLibraries: Boolean = false,
     val engineRetained: Boolean = false,
     val downloads: List<ModelDownload> = emptyList(),
+    val photos: PhotoDemoState = PhotoDemoState(),
 ) {
     val downloadsActive: Boolean get() = downloads.any { it.active }
     val unavailable: Boolean get() = busy || downloadsActive
@@ -44,6 +47,7 @@ class LabController(private val app: Application) {
     private val storage = LabStorage(app)
     private val downloads = SystemModelDownloads(app)
     private val runtime = LiteRtRuntime(app, storage::file)
+    private val photoLibrary = PhotoLibrary(app)
     private val runner = BenchmarkRunner(runtime, storage::device, storage::snapshot)
     private val mutable = MutableStateFlow(LabState(busy = true))
     val state = mutable.asStateFlow()
@@ -51,6 +55,7 @@ class LabController(private val app: Application) {
     init {
         scope.launch {
             try {
+                photoLibrary.clearPreviews()
                 mutable.update { it.copy(
                     models = storage.models(), results = storage.results(), device = storage.device(),
                     tensorLibraries = runtime.tensorLibrariesAvailable, progress = "Ready · all inference stays on this device.",
@@ -206,9 +211,129 @@ class LabController(private val app: Application) {
         }
     }
 
+    fun analyzePhotos(slot: ModelSlot, accelerator: Accelerator, batchSize: Int, resume: Boolean = false) {
+        if (!begin("Preparing photo batch…", inference = true)) return
+        runtime.resetStop()
+        mutable.update { it.copy(engineRetained = false) }
+        scope.launch {
+            try {
+                require(batchSize in 1..PhotoDemoState.MAX_BATCH_SIZE) { "Batch size must be 1–${PhotoDemoState.MAX_BATCH_SIZE}." }
+                require(accelerator != Accelerator.TPU && !slot.tpu) { "Use a standard CPU/GPU Gemma model for this demo." }
+                check(PhotoPermissions.access(app) != PhotoAccess.DENIED) { "Grant photo access first." }
+                val model = state.value.models.firstOrNull { it.slot == slot } ?: error("Download ${slot.label} from Models first.")
+                val settings = RunSettings(
+                    accelerator = accelerator, workload = Workload.PROMPT, contextTokens = 4096,
+                    outputTokens = 768, repetitions = 1, warmups = 0, cooldownSeconds = 0, prompt = PhotoObjects.PROMPT,
+                )
+                settings.validate()
+                validateBackend(model, settings)
+                if (resume) {
+                    require(state.value.photos.modelSha256 == model.sha256 && state.value.photos.textBackend == accelerator.name) {
+                        "Resume with the same model and backend, or start over."
+                    }
+                } else {
+                    val page = photoLibrary.nextBatch(state.value.photos.beforeId, batchSize)
+                    photoLibrary.clearPreviews()
+                    mutable.update { it.copy(photos = PhotoDemoState(
+                        results = page.photos.map { photo -> PhotoResult(photo) },
+                        beforeId = page.photos.lastOrNull()?.id ?: it.photos.beforeId,
+                        hasMore = page.hasMore, batchNumber = it.photos.batchNumber + 1,
+                        modelLabel = model.slot.label, modelSha256 = model.sha256,
+                        modelSlot = slot, accessScope = PhotoPermissions.access(app),
+                        textBackend = accelerator.name, batchSize = batchSize,
+                    )) }
+                }
+                val batch = state.value.photos.results
+                for ((index, result) in batch.withIndex()) {
+                    if (state.value.stopRequested) break
+                    if (result.status != PhotoStatus.PENDING) continue
+                    mutable.update { it.copy(progress = "Batch ${it.photos.batchNumber} · photo ${index + 1}/${batch.size} · ${result.photo.name}", output = "") }
+                    updatePhoto(index) { it.copy(status = PhotoStatus.ANALYZING, error = null) }
+                    try {
+                        val prepared = photoLibrary.prepare(result.photo)
+                        updatePhoto(index) { it.copy(previewPath = prepared.file.absolutePath, width = prepared.width, height = prepared.height) }
+                        if (state.value.stopRequested) break
+                        val measurement = runtime.analyzePhoto(model, settings, prepared.file.readBytes()) { text ->
+                            mutable.update { it.copy(output = text) }
+                        }
+                        val raw = measurement.output.orEmpty()
+                        mutable.update { it.copy(photos = it.photos.copy(visionBackend = runtime.photoVisionBackend)) }
+                        updatePhoto(index) { it.copy(rawOutput = raw, elapsedMs = measurement.elapsedMs) }
+                        val objects = PhotoObjects.parse(raw)
+                        updatePhoto(index) { it.copy(status = PhotoStatus.COMPLETED, objects = objects) }
+                    } catch (e: CancellationException) {
+                        if (!state.value.stopRequested) throw e
+                        break
+                    } catch (e: Exception) {
+                        if (state.value.stopRequested) break
+                        updatePhoto(index) { it.copy(status = PhotoStatus.FAILED, error = e.message ?: e.javaClass.simpleName) }
+                    }
+                }
+                mutable.update { it.copy(progress = when {
+                    it.stopRequested -> "Photo analysis stopped. Resume this batch or start over."
+                    batch.isEmpty() -> "No more accessible photos. Grant access to more photos or start over."
+                    else -> "Batch ${it.photos.batchNumber} finished · ${it.photos.results.count { r -> r.status == PhotoStatus.COMPLETED }}/${batch.size} photos analyzed."
+                }) }
+            } catch (e: Exception) { fail(e) }
+            finally {
+                mutable.update { it.copy(photos = it.photos.copy(results = it.photos.results.map { r ->
+                    if (r.status == PhotoStatus.ANALYZING) r.copy(status = PhotoStatus.PENDING) else r
+                })) }
+                // Keep photo memory bounded between batches; the runtime disk cache is retained.
+                runtime.unload()
+                mutable.update { it.copy(engineRetained = false) }
+                finish()
+            }
+        }
+    }
+
+    private fun updatePhoto(index: Int, transform: (PhotoResult) -> PhotoResult) {
+        mutable.update { it.copy(photos = it.photos.copy(results = it.photos.results.mapIndexed { i, result ->
+            if (i == index) transform(result) else result
+        })) }
+    }
+
+    fun resetPhotos() {
+        if (!begin("Photo demo reset. Ready for the newest accessible photos.")) return
+        scope.launch {
+            try {
+                photoLibrary.clearPreviews()
+                mutable.update { it.copy(photos = PhotoDemoState()) }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    fun exportPhotos(uri: Uri) {
+        if (!begin("Exporting photo object results…")) return
+        scope.launch {
+            try {
+                val photos = state.value.photos
+                val report = mapOf(
+                    "model" to photos.modelLabel, "sha256" to photos.modelSha256,
+                    "textBackend" to photos.textBackend, "visionBackend" to photos.visionBackend,
+                    "batch" to photos.batchNumber, "batchSize" to photos.batchSize,
+                    "coordinates" to "Estimated boxes [left, top, right, bottom], 0..1000, origin top-left of upright image",
+                    "photos" to photos.results.map { result -> mapOf(
+                        "photo" to result.photo, "status" to result.status,
+                        "uprightInputWidth" to result.width, "uprightInputHeight" to result.height,
+                        "objects" to result.objects, "elapsedMs" to result.elapsedMs,
+                        "rawOutput" to result.rawOutput, "error" to result.error,
+                    ) },
+                )
+                app.contentResolver.openOutputStream(uri, "wt").use {
+                    requireNotNull(it) { "Cannot write to that destination." }
+                    it.write(GsonBuilder().setPrettyPrinting().create().toJson(report).toByteArray(Charsets.UTF_8))
+                }
+                mutable.update { it.copy(progress = "Exported ${photos.results.size} photo result(s).") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
     fun stop() {
         if (!state.value.runningInference) return
-        mutable.update { it.copy(stopRequested = true, progress = "Stopping… Fixed-token tests stop after the current native call.") }
+        mutable.update { it.copy(stopRequested = true, progress = "Stopping… Waiting for the active native call to return.") }
         try { runner.stop() } catch (e: Exception) { fail(e) }
     }
 
