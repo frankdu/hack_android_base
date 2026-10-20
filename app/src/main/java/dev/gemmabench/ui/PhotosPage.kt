@@ -32,8 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.gemmabench.LabController
 import dev.gemmabench.LabState
-import dev.gemmabench.benchmark.Accelerator
-import dev.gemmabench.benchmark.ModelSlot
+import dev.gemmabench.benchmark.*
 import dev.gemmabench.photos.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,15 +62,38 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
         uri?.let(controller::exportPhotos)
     }
     var batchSize by rememberSaveable { mutableStateOf(PhotoDemoState.DEFAULT_BATCH_SIZE.toString()) }
-    var slotName by rememberSaveable { mutableStateOf(ModelSlot.E2B.name) }
+    var familyName by rememberSaveable { mutableStateOf(ModelSlot.E2B.name) }
     var acceleratorName by rememberSaveable { mutableStateOf(Accelerator.CPU.name) }
     val size = batchSize.toIntOrNull()
     val validSize = size != null && size in 1..PhotoDemoState.MAX_BATCH_SIZE
     val photos = state.photos
     val unfinished = photos.results.any { it.status == PhotoStatus.PENDING || it.status == PhotoStatus.ANALYZING }
-    val slot = if (unfinished) photos.modelSlot ?: ModelSlot.valueOf(slotName) else ModelSlot.valueOf(slotName)
     val accelerator = if (unfinished) Accelerator.valueOf(photos.textBackend) else Accelerator.valueOf(acceleratorName)
-    val modelReady = state.models.any { it.slot == slot }
+    val family = if (unfinished) {
+        if (photos.modelSlot == ModelSlot.E4B) ModelSlot.E4B else ModelSlot.E2B
+    } else ModelSlot.valueOf(familyName)
+    val slot = if (unfinished) photos.modelSlot else modelSlot(family, accelerator, state.tpuSupport)
+    fun available(family: ModelSlot, backend: Accelerator): Boolean {
+        val candidate = modelSlot(family, backend, state.tpuSupport) ?: return false
+        return state.models.any { it.slot == candidate && it.unavailableReason(backend, state.tpuSupport, photos = true) == null }
+    }
+    val model = state.models.firstOrNull { it.slot == slot }
+    val reason = when {
+        accelerator == Accelerator.TPU && !state.tpuSupport.available -> state.tpuSupport.reason
+        slot == null -> "E4B TPU is unavailable: no official Tensor artifact is published."
+        model == null -> "Download ${slot.label} in Models first."
+        else -> model.unavailableReason(accelerator, state.tpuSupport, photos = true)
+    }
+    val modelReady = model != null && reason == null
+    // Select an installed compatible combination on first entry or after model provisioning changes.
+    LaunchedEffect(state.models, state.tpuSupport, unfinished, state.unavailable) {
+        if (!unfinished && !state.unavailable && !available(family, accelerator)) {
+            val choice = listOf(ModelSlot.E2B, ModelSlot.E4B).flatMap { candidate ->
+                Accelerator.entries.map { candidate to it }
+            }.firstOrNull { (candidate, backend) -> available(candidate, backend) }
+            choice?.let { (candidate, backend) -> familyName = candidate.name; acceleratorName = backend.name }
+        }
+    }
 
     LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -104,18 +126,40 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
                     isError = !validSize, supportingText = { Text("1–${PhotoDemoState.MAX_BATCH_SIZE} photos per batch") },
                     enabled = !state.unavailable && !unfinished, modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Model", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(ModelSlot.E2B, ModelSlot.E4B).forEach { model ->
-                        FilterChip(selected = slot == model, onClick = { slotName = model.name }, label = { Text(model.name) }, enabled = !state.unavailable && !unfinished)
-                    }
-                    listOf(Accelerator.CPU, Accelerator.GPU).forEach { backend ->
-                        FilterChip(selected = accelerator == backend, onClick = { acceleratorName = backend.name }, label = { Text(backend.name) }, enabled = !state.unavailable && !unfinished)
+                    listOf(ModelSlot.E2B, ModelSlot.E4B).forEach { candidate ->
+                        FilterChip(
+                            selected = family == candidate,
+                            onClick = {
+                                familyName = candidate.name
+                                if (!available(candidate, accelerator)) {
+                                    acceleratorName = Accelerator.entries.first { available(candidate, it) }.name
+                                }
+                            },
+                            label = { Text(candidate.name) },
+                            enabled = !state.unavailable && !unfinished && Accelerator.entries.any { available(candidate, it) },
+                        )
                     }
                 }
-                Text("Text: ${accelerator.name} · Vision: ${photos.visionBackend ?: "auto (CPU/GPU)"} · One image at a time", style = MaterialTheme.typography.bodySmall)
-                if (!modelReady) Text("Download ${slot.label} in Models first.", color = MaterialTheme.colorScheme.error)
+                Text("Text accelerator", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Accelerator.entries.forEach { backend ->
+                        FilterChip(selected = accelerator == backend, onClick = { acceleratorName = backend.name },
+                            label = { Text(backend.name) }, enabled = !state.unavailable && !unfinished && available(family, backend))
+                    }
+                }
+                val vision = if (unfinished) photos.visionBackend else model?.metadata?.let {
+                    visionAccelerator(it.visionBackends.orEmpty(), accelerator, state.tpuSupport.available)?.name
+                }
+                Text("Text: ${accelerator.name} · Vision: ${vision ?: "auto"} · One image at a time", style = MaterialTheme.typography.bodySmall)
+                model?.let { Text("Using ${it.slot.label}", style = MaterialTheme.typography.bodySmall) }
+                if (family == ModelSlot.E4B) Text("E4B TPU is unavailable.", style = MaterialTheme.typography.bodySmall)
+                else if (!available(family, Accelerator.TPU)) Text(if (!state.tpuSupport.available) state.tpuSupport.reason
+                    else "Download a vision-capable E2B TPU model in Models to enable TPU.", style = MaterialTheme.typography.bodySmall)
+                reason?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
-                    onClick = { controller.analyzePhotos(slot, accelerator, size ?: PhotoDemoState.DEFAULT_BATCH_SIZE, resume = unfinished) },
+                    onClick = { slot?.let { controller.analyzePhotos(it, accelerator, size ?: PhotoDemoState.DEFAULT_BATCH_SIZE, resume = unfinished) } },
                     enabled = !state.unavailable && access != PhotoAccess.DENIED && validSize && modelReady && (photos.hasMore || unfinished),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (unfinished) "Resume batch" else "Analyze next batch") }

@@ -28,6 +28,8 @@ data class ArtifactMetadata(
     val dynamicContext: Boolean,
     val minRuntimeVersion: String?,
     val supportsSpeculativeDecoding: Boolean,
+    val visionSupported: Boolean? = null,
+    val visionBackends: List<String>? = null,
 )
 
 data class RunSettings(

@@ -12,7 +12,7 @@ Warm-up invocations prime runtime/OS/compiler caches but do **not** retain the e
 
 The native helper controls context sizing and CPU thread count. The exported `contextTokens` setting is only applied by prompt mode; it is not forwarded to the helper. No CPU thread count is claimed. Baseline MTP is explicitly false. The harness uses its native sampling/thinking defaults, unlike the separately configured prompt mode.
 
-Defaults: 256 input, 256 output tokens, 1 warm-up, 3 measured invocations, 2-second cooldown. Presets: quick 256/128, reference 1024/256. CPU and GPU are explicit, with no fallback. Three samples are exploratory; p95 with this sample size is the largest observation, not a reliable tail-latency estimate.
+Defaults: 256 input, 256 output tokens, 1 warm-up, 3 measured invocations, 2-second cooldown. Presets: quick 256/128, reference 1024/256. CPU, GPU and TPU are explicit, with no fallback. Three samples are exploratory; p95 with this sample size is the largest observation, not a reliable tail-latency estimate.
 
 ### Prompt playground
 
@@ -50,17 +50,17 @@ Compare only equivalent artifacts, backends, workload lengths, MTP settings and 
 
 ## Tensor TPU support
 
-The default APK includes LiteRT-LM's ARM64 CPU/GPU runtime. **The Maven AAR does not include the Google Tensor dispatch libraries.** TPU is disabled in the UI unless `libLiteRtDispatch_GoogleTensor.so` is present in the app's extracted native library directory.
+The default APK includes LiteRT-LM's ARM64 CPU/GPU runtime plus Google's Maven `com.google.ai.edge.litert:litert-npu-runtime-google-tensor:2.3.0` package. That package supplies the Tensor dispatcher; the vendor TPU implementation comes from the phone's OS. The manifest declares the optional `libedgetpu_util.so` and `libedgetpu_litert.so` libraries so CPU/GPU devices can still install the app.
 
-To build a TPU-enabled variant:
+At startup, the serialized worker checks the exact normalized SoC name (Tensor G5/G6), ARM64 support, dispatcher presence, and whether the vendor libraries and dispatcher can load. Only the matching E2B TPU download is enabled. An unsupported device/runtime shows its reason and disables TPU controls. A successful probe establishes prerequisites; engine initialization remains the final model/firmware compatibility check. Native failures are surfaced without retrying on CPU/GPU.
 
-1. Obtain compatible ARM64 Google Tensor dispatch/runtime libraries from the [official LiteRT releases](https://github.com/google-ai-edge/LiteRT/releases) or build the dispatcher according to the [Tensor FAQ](https://developers.google.com/edge/tensor-sdk/tensor-faqs). Match SDK/runtime/OS using the [compatibility matrix](https://developers.google.com/edge/tensor-sdk/release-notes).
-2. Put the necessary `.so` files under a directory containing `arm64-v8a/`. Do not replace `liblitertlm_jni.so` with an unrelated runtime version.
-3. Build with `./gradlew :app:assembleDebug -PtensorNpuLibDir=/absolute/path/to/jniLibs` or stage the libraries in ignored `app/src/main/jniLibs/arm64-v8a/`.
-4. In **Models → Advanced**, import the matching [official E2B G5/G6 artifact](https://developers.google.com/edge/tensor-sdk/slm-compilation). CPU/GPU artifacts are not TPU substitutes. E4B TPU is not listed by the official model garden and is not offered.
-5. Select TPU and its matching model. The prototype checks the reported SoC for G5/G6. Library detection is only a prerequisite, not a compatibility guarantee; initialization errors are surfaced.
+1. In **Models**, download the matching **E2B TPU · G5/G6** artifact. The usual Wi-Fi policy, background transfer recovery, size/SHA-256 checks and native metadata inspection apply.
+2. In **Benchmark** or **Playground**, select **TPU**, then the installed compatible model. The other Tensor generation is excluded. E4B TPU has no published official artifact.
+3. In **Photos**, select E2B in the first row and TPU in the second. The option requires an installed compatible artifact with a vision encoder. Text and vision backends are recorded separately; vision honors artifact constraints and can use NPU through `Backend.NPU`.
 
-No TPU native binaries are downloaded automatically. Do not infer TPU performance from the CPU/GPU results. The [Pixel TPU reference sample](https://github.com/google-ai-edge/litert-samples/blob/main/samples/litert/google/sample_app_tpu/README.md) is a useful integration reference.
+For custom runtime experiments, obtain compatible ARM64 libraries from [official LiteRT releases](https://github.com/google-ai-edge/LiteRT/releases) or build them using the [Tensor FAQ](https://developers.google.com/edge/tensor-sdk/tensor-faqs). Match SDK/runtime/OS using the [compatibility matrix](https://developers.google.com/edge/tensor-sdk/release-notes). Place them under a directory containing `arm64-v8a/` and build with `-PtensorNpuLibDir=/absolute/path/to/jniLibs`. This replaces the Maven Tensor dependency to avoid duplicate libraries. Do not replace LiteRT-LM's JNI library with an unrelated version.
+
+The [official model list](https://developers.google.com/edge/tensor-sdk/slm-compilation) and [Pixel TPU reference sample](https://github.com/google-ai-edge/litert-samples/blob/main/samples/litert/google/sample_app_tpu/README.md) describe the supported bundles. Do not infer TPU performance from CPU/GPU results.
 
 ## Architecture
 

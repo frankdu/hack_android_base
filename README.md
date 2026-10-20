@@ -14,7 +14,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n dev.gemmabench/.MainActivity
 ```
 
-Set `ANDROID_HOME` to your SDK, or create an ignored `local.properties` with `sdk.dir=/absolute/path/to/android-sdk` if needed. Versions are pinned: Gradle 9.5.0, AGP 9.3.1, Compose compiler 2.4.10 and LiteRT-LM 0.18.0.
+Set `ANDROID_HOME` to your SDK, or create an ignored `local.properties` with `sdk.dir=/absolute/path/to/android-sdk` if needed. Versions are pinned: Gradle 9.5.0, AGP 9.3.1, Compose compiler 2.4.10, LiteRT-LM 0.18.0 and Tensor NPU runtime 2.3.0.
 
 ## Download the models
 
@@ -22,6 +22,9 @@ Open **Models** and tap **Download E2B** or **Download E4B**. Downloads come dir
 
 - E2B: **2,588,147,712 bytes** (2.59 GB).
 - E4B: **3,659,530,240 bytes** (3.66 GB).
+- E2B TPU / Tensor G5: **3,113,545,589 bytes** (3.11 GB).
+- E2B TPU / Tensor G6: **3,313,938,293 bytes** (3.31 GB).
+- TPU cards are always visible. Only the matching Tensor G5/G6 download is enabled after ARM64 and native runtime/vendor library checks pass. Unsupported devices show the reason. E4B TPU has no published artifact.
 - **Wi-Fi only** is on by default. Switching it changes the policy for newly started downloads.
 - Each card shows bytes, percentage, network waiting state, and cancellation/retry actions.
 - Android's download service keeps transfers running outside the app and retries interrupted connections. Tracked jobs and progress are recovered after app/process restart. User cancellation removes the partial file; a retry starts a fresh transfer.
@@ -54,7 +57,7 @@ Then tap **Import files staged by ADB**. Staging files are retained until you re
 
 ## Run
 
-1. In **Benchmark**, select CPU or GPU and one or both downloaded models.
+1. In **Benchmark**, select CPU, GPU or TPU and compatible downloaded models. TPU selects the E2B artifact matching the detected Tensor generation.
 2. Use 256/128 for a quick check or 1024/256 for the reference workload. Default: one excluded warm-up and three measured runs, with two seconds between runs.
 3. Keep the app foreground. It keeps the screen awake while running. Going to the background requests a stop.
 4. Review medians, p95, native token counts and per-run details. **Results** exports all saved results as JSON or CSV, including prompts/outputs and device/build metadata.
@@ -65,7 +68,7 @@ Native backend failures are reported, never silently rerouted. A failed model do
 ## Photo objects demo
 
 1. Download E2B or E4B, then open **Photos → Grant photo access**. Android 14+ supports selected-photo access as well as the full library; Android 13 uses image permission and Android 12 uses storage permission. Use **Change photo access** to reselect, or **App permission settings** after a permanent denial.
-2. Choose a model, CPU/GPU text backend, and **batch size** (default **10**, range 1–50). Vision uses the backend declared by the artifact (CPU for the downloaded standard E2B artifact tested here). When unconstrained or when both are available, the demo selects GPU. It checks native vision metadata before inference and records the selected backend; initialization errors are reported without retrying on another backend.
+2. Choose **E2B/E4B** in the model row, then **CPU/GPU/TPU** in the accelerator row, and a **batch size** (default **10**, range 1–50). Only installed compatible combinations are enabled; the first available combination is selected automatically. TPU maps E2B to the matching G5/G6 artifact. Vision uses a backend declared by the artifact (CPU for the downloaded standard E2B/E4B artifacts). TPU text prefers TPU vision when supported; otherwise vision prefers GPU then CPU. It checks native vision metadata before inference and records the selected backend; initialization errors are reported without retrying on another backend.
 3. Tap **Analyze next batch**. Photos are read from MediaStore in descending media-ID order (newest added first). Each photo gets a fresh Gemma conversation. The engine is reused within the batch and released afterward. Photos stay on the device.
 4. Review object names, colored bounding boxes, and numerical `[left, top, right, bottom]` coordinates normalized to 0–1000 with origin at the upright image's top-left. These are **Gemma estimates**, not pixel segmentation masks. Invalid output is shown as a per-photo error with the raw response; other photos continue.
 5. **Export JSON** before loading the next batch to save object coordinates, photo references, model/hash/backend, errors and raw responses. Only the current batch is retained in memory. Resized previews are cached privately and cleared for the next batch/reset/app startup; results are not restored after process exit.

@@ -27,6 +27,16 @@ object ModelCatalog {
             "e6a3892a8c22cf87ff99583996149cf3cb32452b", "gemma-4-E4B-it.litertlm",
             3_659_530_240L, "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
         ),
+        DownloadSpec(
+            ModelSlot.E2B_G5, "litert-community/gemma-4-E2B-it-litert-lm",
+            "41c5569623a7c189d6eec3e5225260c58cedbce7", "gemma-4-E2B-it_Google_Tensor_G5.litertlm",
+            3_113_545_589L, "af1082986639ecde7db95d91be6fe54f8b6b458104734c5bafc204e69d6852dc",
+        ),
+        DownloadSpec(
+            ModelSlot.E2B_G6, "litert-community/gemma-4-E2B-it-litert-lm",
+            "41c5569623a7c189d6eec3e5225260c58cedbce7", "gemma-4-E2B-it_Google_Tensor_G6.litertlm",
+            3_313_938_293L, "f86c7c19c736e9307267946edef58b0a45494a9127036d54d90dd6b7617c95b7",
+        ),
     )
 
     fun forSlot(slot: ModelSlot): DownloadSpec = models.first { it.slot == slot }

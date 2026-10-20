@@ -16,7 +16,7 @@ class ModelDownloadTest {
     private fun file(contents: ByteArray = bytes): File = directory.newFile().apply { writeBytes(contents) }
 
     @Test fun catalogUsesPinnedOfficialFilesForBothModels() {
-        assertEquals(setOf(ModelSlot.E2B, ModelSlot.E4B), ModelCatalog.models.map { it.slot }.toSet())
+        assertEquals(ModelSlot.entries.toSet(), ModelCatalog.models.map { it.slot }.toSet())
         ModelCatalog.models.forEach { model ->
             assertTrue(model.url.startsWith("https://huggingface.co/litert-community/"))
             assertTrue(model.url.contains("/resolve/${model.revision}/"))

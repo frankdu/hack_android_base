@@ -13,6 +13,17 @@ Initial implementation: October 19, 2026.
 - **Shell syntax checked:** `sh -n scripts/push-model.sh`.
 - LiteRT-LM API usage was checked against the actual pinned 0.18.0 Maven AAR, including `benchmark()`, `BenchmarkInfo`, `ModelInfo`, `ConversationConfig` and streaming conversation APIs.
 
+## TPU capability and selector update — October 20, 2026
+
+- Added pinned E2B Tensor G5/G6 downloads and the published Google Tensor NPU runtime 2.3.0 dependency. The merged manifest declares optional vendor libraries, preserving installation on CPU/GPU devices.
+- Final debug APK, test APK, all **21 unit tests**, and Android lint passed. New tests cover exact Tensor generation matching, missing/broken runtimes, ARM64, backend compatibility, vision requirements and E2B/E4B variant mapping.
+- On the connected Pixel 10 Pro Fold (Tensor G5, Android 17), the vendor TPU libraries and packaged dispatcher loaded successfully and the capability probe selected `E2B_G5`. A request to download the G6 artifact was rejected before creating a transfer.
+- Existing E2B/E4B model manifests were upgraded in place with vision metadata. Both retain CPU/GPU text support and report CPU vision encoders; the installed model files were preserved.
+- The matching G5 TPU download was successfully enqueued through Android DownloadManager. The phone had no Wi-Fi connection, so its unmetered connectivity constraint remained unsatisfied and no bytes transferred. The optional full-download test was stopped; this is not a completed TPU model download or an inference validation. The final on-device enqueue/cancel smoke test passed, canceled that exact test transfer and cleared its tracking record. Both TPU instrumentation checks passed (2 tests).
+- The existing generated-image Photos regression test passed with the final runtime dependency: two CPU vision requests identified the mug and the second reused the engine. No personal photos were used.
+- Photos now shows E2B/E4B in one row and CPU/GPU/TPU in a separate row. Installed artifact metadata and the device capability probe govern enabled choices. Visual verification remains pending while the phone is securely locked.
+- Actual TPU initialization, throughput and photo inference, G6 hardware, and runtime failure behavior on other firmware remain device coverage boundaries. Use the opt-in download test below with `-e downloadTpu true` to provision only the matching TPU artifact in addition to standard models.
+
 ## Pixel download validation
 
 A **Pixel 10 Pro Fold, Tensor G5, Android 17** became available during the download feature implementation. The updated debug APK was installed successfully.
@@ -43,7 +54,7 @@ The photo demo was built and installed on the same Pixel 10 Pro Fold with the do
 - A JPEG tagged with EXIF 90-degree rotation was decoded upright with the expected swapped dimensions, matching the preview/coordinate convention.
 - Real E2B vision inference on a generated blue mug image returned `{"objects":[{"name":"mug","box":[253,253,746,746]}]}`. This verifies image bytes reach Gemma and the returned coordinates pass validation; it is not a localization-accuracy benchmark. The first measured inference took about 11.4 seconds, excluding engine load/preparation.
 - Final instrumentation run passed both tests in 18.8 seconds. Two successive image requests returned that same valid mug box; the second reported `engineReused=true`. Inference timings in that run were about 7.3 and 7.0 seconds, excluding engine load/preparation.
-- Native artifact metadata reports **CPU** for the standard E2B vision encoder. The demo honors that constraint while text CPU/GPU remains selectable. Artifacts with unconstrained vision metadata select GPU; initialization failures are surfaced without backend retry.
+- Native artifact metadata reports **CPU** for the standard E2B vision encoder. The demo honors that constraint while text CPU/GPU remains selectable. CPU/GPU text with unconstrained vision metadata selects GPU; TPU text prefers a supported TPU vision encoder; initialization failures are surfaced without backend retry.
 - Personal photo contents were not used for the native inference test. Full/selected permission behavior on older Android versions, E4B/GPU vision quality, cancellation under sustained load, and localization accuracy across real photos remain manual coverage.
 - Final visual inspection of the Photos tab and permission dialog was blocked by the device's secure lock screen. The build is installed; those UI flows still need a manual check after unlocking.
 

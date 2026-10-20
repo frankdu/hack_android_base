@@ -43,6 +43,16 @@ class LabStorage(private val context: Context) {
 
     fun results(): List<BenchmarkResult> = readList(resultsFile)
 
+    /** Upgrade existing manifests so pickers can distinguish text-only and multimodal artifacts. */
+    fun refreshModelMetadata(): List<ModelArtifact> {
+        val installed = models()
+        val updated = installed.map { model ->
+            if (model.metadata?.visionSupported == null) model.copy(metadata = inspectModel(file(model))) else model
+        }
+        if (updated != installed) writeJson(manifest, updated)
+        return updated
+    }
+
     fun saveResults(results: List<BenchmarkResult>) = writeJson(resultsFile, results.take(100))
 
     /** Verify and promote in place. There is no second multi-GB import copy. */
@@ -129,6 +139,7 @@ class LabStorage(private val context: Context) {
                 info.supportedBackends(Modality.TEXT).map { it.name }, info.maxContextTokens(),
                 info.isDynamicContext(), info.minRuntimeVersion(),
                 (info as? ModelInfo.Llm)?.hasSpeculativeDecodingSupport() == true,
+                info.inputModalities().vision, info.supportedBackends(Modality.VISION).map { it.name },
             )
         }
     } catch (e: LinkageError) {

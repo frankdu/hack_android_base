@@ -2,7 +2,6 @@ package dev.gemmabench
 
 import android.app.Application
 import android.net.Uri
-import android.os.Build
 import dev.gemmabench.benchmark.*
 import dev.gemmabench.data.CsvExport
 import dev.gemmabench.data.LabStorage
@@ -31,7 +30,7 @@ data class LabState(
     val output: String = "",
     val error: String? = null,
     val device: DeviceInfo? = null,
-    val tensorLibraries: Boolean = false,
+    val tpuSupport: TpuSupport = TpuSupport(),
     val engineRetained: Boolean = false,
     val downloads: List<ModelDownload> = emptyList(),
     val photos: PhotoDemoState = PhotoDemoState(),
@@ -57,8 +56,9 @@ class LabController(private val app: Application) {
             try {
                 photoLibrary.clearPreviews()
                 mutable.update { it.copy(
-                    models = storage.models(), results = storage.results(), device = storage.device(),
-                    tensorLibraries = runtime.tensorLibrariesAvailable, progress = "Ready · all inference stays on this device.",
+                    models = storage.refreshModelMetadata(), results = storage.results(), device = storage.device(),
+                    tpuSupport = runtime.tpuSupport,
+                    progress = "Ready · all inference stays on this device.",
                     downloads = downloads.statuses(),
                 ) }
             } catch (e: Exception) { fail(e) }
@@ -85,6 +85,10 @@ class LabController(private val app: Application) {
         mutable.update { it.copy(busy = true, error = null, progress = "Starting ${slot.label} download…") }
         scope.launch {
             try {
+                if (slot.tpu) {
+                    require(runtime.tpuSupport.available) { runtime.tpuSupport.reason }
+                    require(slot == runtime.tpuSupport.slot) { "Download the TPU model matching this device's Tensor generation." }
+                }
                 runtime.unload()
                 downloads.enqueue(ModelCatalog.forSlot(slot), wifiOnly)
                 mutable.update { it.copy(downloads = downloads.statuses(), engineRetained = false,
@@ -218,11 +222,15 @@ class LabController(private val app: Application) {
         scope.launch {
             try {
                 require(batchSize in 1..PhotoDemoState.MAX_BATCH_SIZE) { "Batch size must be 1–${PhotoDemoState.MAX_BATCH_SIZE}." }
-                require(accelerator != Accelerator.TPU && !slot.tpu) { "Use a standard CPU/GPU Gemma model for this demo." }
                 check(PhotoPermissions.access(app) != PhotoAccess.DENIED) { "Grant photo access first." }
                 val model = state.value.models.firstOrNull { it.slot == slot } ?: error("Download ${slot.label} from Models first.")
+                model.unavailableReason(accelerator, runtime.tpuSupport, photos = true)?.let { error(it) }
+                val metadata = model.metadata
+                val contextTokens = metadata?.maxContextTokens?.takeIf { it > 0 }?.let {
+                    if (metadata.dynamicContext) minOf(4096, it) else it
+                } ?: 4096
                 val settings = RunSettings(
-                    accelerator = accelerator, workload = Workload.PROMPT, contextTokens = 4096,
+                    accelerator = accelerator, workload = Workload.PROMPT, contextTokens = contextTokens,
                     outputTokens = 768, repetitions = 1, warmups = 0, cooldownSeconds = 0, prompt = PhotoObjects.PROMPT,
                 )
                 settings.validate()
@@ -364,6 +372,7 @@ class LabController(private val app: Application) {
     }
 
     private fun validateBackend(model: ModelArtifact, settings: RunSettings) {
+        model.unavailableReason(settings.accelerator, runtime.tpuSupport)?.let { error(it) }
         require(model.slot.tpu == (settings.accelerator == Accelerator.TPU)) {
             "CPU/GPU require standard models. TPU requires the matching E2B Tensor variant."
         }
@@ -383,12 +392,6 @@ class LabController(private val app: Application) {
                     "This artifact has a fixed ${metadata.maxContextTokens}-token context; set the prompt context to that value."
                 }
             }
-        }
-        if (settings.accelerator == Accelerator.TPU) {
-            require(runtime.tensorLibrariesAvailable) { "Bundle matching Tensor native libraries before using TPU. See docs/BENCHMARKING.md." }
-            val soc = Build.SOC_MODEL.uppercase().replace(" ", "").replace("_", "")
-            val target = if (model.slot == ModelSlot.E2B_G5) "G5" else "G6"
-            require(soc.contains(target)) { "This artifact targets Tensor $target; this device reports ${Build.SOC_MODEL}." }
         }
     }
 

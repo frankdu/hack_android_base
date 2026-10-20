@@ -26,7 +26,11 @@ class ModelDownloadInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             val lab = app.lab
             withTimeout(15_000) { while (lab.state.value.busy || lab.state.value.device == null) delay(100) }
-            ModelCatalog.models.forEach { spec ->
+            // TPU provisioning is separately opt-in and only targets this device's supported artifact.
+            val specs = ModelCatalog.models.filter { !it.slot.tpu ||
+                (InstrumentationRegistry.getArguments().getString("downloadTpu") == "true" &&
+                    lab.state.value.tpuSupport.available && it.slot == lab.state.value.tpuSupport.slot) }
+            specs.forEach { spec ->
                 val installed = lab.state.value.models.any { it.slot == spec.slot && it.sha256 == spec.sha256 }
                 val running = lab.state.value.downloads.any { it.spec.slot == spec.slot && it.active }
                 if (!installed && !running) {
@@ -43,7 +47,7 @@ class ModelDownloadInstrumentedTest {
                         delay(500)
                     }
                 }
-                ModelCatalog.models.forEach { spec ->
+                specs.forEach { spec ->
                     assertTrue("${spec.slot} should be installed or tracked by Android",
                         lab.state.value.models.any { it.slot == spec.slot } ||
                             lab.state.value.downloads.any { it.spec.slot == spec.slot && it.active })
@@ -54,7 +58,7 @@ class ModelDownloadInstrumentedTest {
                 return@use
             }
             withTimeout(20 * 60 * 1000L) {
-                while (ModelCatalog.models.any { spec -> lab.state.value.models.none { it.slot == spec.slot && it.sha256 == spec.sha256 } }) {
+                while (specs.any { spec -> lab.state.value.models.none { it.slot == spec.slot && it.sha256 == spec.sha256 } }) {
                     lab.state.value.downloads.forEach { download ->
                         assertNotEquals(download.detail, TransferPhase.FAILED, download.phase)
                         Log.i("GemmaDownloadTest", "${download.spec.slot}: ${download.phase} ${download.receivedBytes}/${download.spec.bytes}")
@@ -63,7 +67,7 @@ class ModelDownloadInstrumentedTest {
                     delay(5000)
                 }
             }
-            ModelCatalog.models.forEach { spec ->
+            specs.forEach { spec ->
                 val model = lab.state.value.models.single { it.slot == spec.slot }
                 assertEquals(spec.bytes, model.bytes)
                 assertEquals(spec.sha256, model.sha256)

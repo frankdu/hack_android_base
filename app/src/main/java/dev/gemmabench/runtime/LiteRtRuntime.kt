@@ -1,6 +1,7 @@
 package dev.gemmabench.runtime
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.BenchmarkInfo
@@ -37,11 +38,25 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
     val tensorLibrariesAvailable: Boolean
         get() = File(context.applicationInfo.nativeLibraryDir, "libLiteRtDispatch_GoogleTensor.so").isFile
 
+    val tpuSupport: TpuSupport by lazy {
+        val initial = TpuSupport.check(Build.SOC_MODEL, Build.SUPPORTED_ABIS.toList(), tensorLibrariesAvailable)
+        if (!initial.available) initial else {
+            val error = try {
+                System.loadLibrary("edgetpu_util")
+                System.loadLibrary("edgetpu_litert")
+                System.load(File(context.applicationInfo.nativeLibraryDir, "libLiteRtDispatch_GoogleTensor.so").absolutePath)
+                null
+            } catch (e: LinkageError) { e.message ?: e.javaClass.simpleName }
+              catch (e: SecurityException) { e.message ?: e.javaClass.simpleName }
+            TpuSupport.check(Build.SOC_MODEL, Build.SUPPORTED_ABIS.toList(), tensorLibrariesAvailable, error)
+        }
+    }
+
     private fun backend(accelerator: Accelerator): Backend = when (accelerator) {
         Accelerator.CPU -> Backend.CPU()
         Accelerator.GPU -> Backend.GPU()
         Accelerator.TPU -> {
-            check(tensorLibrariesAvailable) { "Tensor dispatch libraries are not bundled. See docs/BENCHMARKING.md." }
+            check(tpuSupport.available) { tpuSupport.reason }
             Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
         }
     }
@@ -89,6 +104,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
         check(model.slot.tpu == (settings.accelerator == Accelerator.TPU)) {
             "Select a CPU/GPU model for CPU or GPU, or the matching Tensor model for TPU."
         }
+        model.unavailableReason(settings.accelerator, tpuSupport, photos = jpeg != null)?.let { error(it) }
         if (settings.workload == Workload.FIXED_TOKENS) {
             unload()
             ExperimentalFlags.enableBenchmark = true
@@ -115,13 +131,10 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                 ModelInfo.from(file.absolutePath).use { info ->
                     require(info.inputModalities().vision) { "This model has no vision encoder. Import a multimodal Gemma model." }
                     val supported = info.supportedBackends(Modality.VISION).map { it.name }
-                    // Empty metadata means no backend constraint, as for the text executor.
-                    photoVisionBackend = when {
-                        supported.isEmpty() || "GPU" in supported -> "GPU"
-                        "CPU" in supported -> "CPU"
-                        else -> error("This vision encoder requires ${supported.joinToString()}; use a standard CPU/GPU artifact.")
-                    }
-                    vision = if (photoVisionBackend == "GPU") Backend.GPU() else Backend.CPU()
+                    val selected = visionAccelerator(supported, settings.accelerator, tpuSupport.available)
+                        ?: error("This vision encoder requires an unavailable backend: ${supported.joinToString()}.")
+                    photoVisionBackend = selected.name
+                    vision = backend(selected)
                 }
             }
             ExperimentalFlags.enableBenchmark = true

@@ -132,16 +132,18 @@ private fun ModelsPage(state: LabState, controller: LabController) {
     listOf(ModelSlot.E2B, ModelSlot.E4B).forEach { slot ->
         ModelCard(slot, state, controller, wifiOnly, advanced) { pending = slot.name; picker.launch(arrayOf("*/*")) }
     }
+    Text("Tensor TPU models", style = MaterialTheme.typography.titleMedium)
+    Text(if (state.tpuSupport.available) "Tensor runtime loaded · matching E2B TPU download enabled. Engine initialization checks firmware/model compatibility."
+        else state.tpuSupport.reason, style = MaterialTheme.typography.bodySmall)
+    listOf(ModelSlot.E2B_G5, ModelSlot.E2B_G6).forEach { slot ->
+        ModelCard(slot, state, controller, wifiOnly, advanced) { pending = slot.name; picker.launch(arrayOf("*/*")) }
+    }
+    Text("E4B TPU is unavailable: no official Tensor artifact is published.", style = MaterialTheme.typography.bodySmall)
     Text("Downloads continue when you leave the app. Android retries interrupted transfers; return here to see progress. Completed files are checked before becoming ready.", style = MaterialTheme.typography.bodySmall)
-    TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced options" else "Advanced · manual import and TPU") }
+    TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced options" else "Advanced · manual import and metadata") }
     if (advanced) {
         OutlinedButton(onClick = controller::importStaged, enabled = !state.unavailable, modifier = Modifier.fillMaxWidth()) { Text("Import files staged by ADB") }
         Text("Manual imports make a private copy and use the slot label you select. Downloaded official models are verified against a pinned SHA-256 checksum.", style = MaterialTheme.typography.bodySmall)
-        Text(if (state.tensorLibraries) "Tensor dispatch library detected. Runtime, firmware and artifact versions still need to match." else "This build has CPU/GPU support. To enable TPU, bundle matching Tensor native libraries using the documented Gradle option.", style = MaterialTheme.typography.bodyMedium)
-        listOf(ModelSlot.E2B_G5, ModelSlot.E2B_G6).forEach { slot ->
-            ModelCard(slot, state, controller, wifiOnly, true) { pending = slot.name; picker.launch(arrayOf("*/*")) }
-        }
-        Text("E4B TPU is not offered: the current official Tensor model list includes E2B. See docs/BENCHMARKING.md.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -150,6 +152,7 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
     val model = state.models.firstOrNull { it.slot == slot }
     val transfer = state.downloads.firstOrNull { it.spec.slot == slot }
     val spec = ModelCatalog.models.firstOrNull { it.slot == slot }
+    val downloadAllowed = !slot.tpu || (state.tpuSupport.available && state.tpuSupport.slot == slot)
     val context = LocalContext.current
     val family = if (slot == ModelSlot.E4B) "E4B" else "E2B"
     val repo = "https://huggingface.co/litert-community/gemma-4-$family-it-litert-lm"
@@ -161,7 +164,8 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(slot.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text(if (slot.tpu) "Device-specific TPU artifact" else if (slot == ModelSlot.E2B) "Fast baseline · 2.59 GB" else "Higher capacity · 3.66 GB", style = MaterialTheme.typography.bodySmall)
+            Text("${if (slot.tpu) "Device-specific TPU" else "CPU/GPU"} · ${((spec?.bytes ?: model?.bytes ?: 0) / 1e9) format 2} GB", style = MaterialTheme.typography.bodySmall)
+            if (!downloadAllowed) Text(if (!state.tpuSupport.available) state.tpuSupport.reason else "This TPU artifact targets a different Tensor generation.", style = MaterialTheme.typography.bodySmall)
             if (model != null) {
                 Text(if (model.downloaded) "Ready · verified download" else "Ready · local model", color = MaterialTheme.colorScheme.primary)
             }
@@ -174,7 +178,7 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
                     TransferPhase.FAILED -> {
                         Text(transfer.detail ?: "Download failed. Tap Retry.", color = MaterialTheme.colorScheme.error)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { controller.downloadModel(slot, wifiOnly) }, enabled = !state.busy) { Text("Retry download") }
+                            Button(onClick = { controller.downloadModel(slot, wifiOnly) }, enabled = !state.busy && downloadAllowed) { Text("Retry download") }
                             TextButton(onClick = { controller.cancelDownload(transfer.id) }, enabled = !state.busy) { Text("Dismiss") }
                         }
                     }
@@ -186,11 +190,14 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
                     }
                 }
             } else if (model == null && spec != null) {
-                Button(onClick = { controller.downloadModel(slot, wifiOnly) }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Download ${if (slot == ModelSlot.E2B) "E2B" else "E4B"}") }
+                Button(onClick = { controller.downloadModel(slot, wifiOnly) }, enabled = !state.busy && downloadAllowed, modifier = Modifier.fillMaxWidth()) {
+                    Text("Download ${when (slot) { ModelSlot.E2B -> "E2B"; ModelSlot.E4B -> "E4B"; ModelSlot.E2B_G5 -> "E2B TPU · G5"; ModelSlot.E2B_G6 -> "E2B TPU · G6" }}")
+                }
             }
             if (model != null && advanced) {
                 model.metadata?.let { meta ->
                     Text("Backends: ${meta.textBackends.joinToString().ifBlank { "unspecified" }} · context ${meta.maxContextTokens.takeIf { it > 0 } ?: "unspecified"}${if (meta.dynamicContext) " (dynamic)" else ""}", style = MaterialTheme.typography.bodySmall)
+                    Text("Vision: ${if (meta.visionSupported == false) "unavailable" else meta.visionBackends.orEmpty().joinToString().ifBlank { "auto" }}", style = MaterialTheme.typography.bodySmall)
                 }
                 SelectionContainer { Text("SHA-256 ${model.sha256}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace) }
             }
@@ -209,7 +216,7 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
 private fun RunPage(state: LabState, controller: LabController, playground: Boolean) {
     var acceleratorName by rememberSaveable(playground) { mutableStateOf(Accelerator.CPU.name) }
     val accelerator = Accelerator.valueOf(acceleratorName)
-    var selectedNames by rememberSaveable(playground) { mutableStateOf(listOf(ModelSlot.E2B.name, ModelSlot.E4B.name)) }
+    var selectedNames by rememberSaveable(playground) { mutableStateOf(ModelSlot.entries.map { it.name }) }
     var inputTokens by rememberSaveable(playground) { mutableStateOf("256") }
     var outputTokens by rememberSaveable(playground) { mutableStateOf(if (playground) "128" else "256") }
     var contextTokens by rememberSaveable(playground) { mutableStateOf("2048") }
@@ -227,25 +234,38 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
         Accelerator.entries.forEach { backend ->
             FilterChip(
                 selected = backend == accelerator,
-                onClick = { acceleratorName = backend.name; if (backend != Accelerator.GPU) mtp = false },
-                enabled = !state.unavailable && (backend != Accelerator.TPU || state.tensorLibraries),
+                onClick = {
+                    acceleratorName = backend.name
+                    if (backend != Accelerator.GPU) mtp = false
+                    if (playground && backend == Accelerator.TPU) {
+                        state.models.firstOrNull { it.slot == state.tpuSupport.slot }?.metadata?.let { meta ->
+                            if (meta.maxContextTokens > 0) contextTokens = (if (meta.dynamicContext)
+                                minOf(contextTokens.toIntOrNull() ?: 2048, meta.maxContextTokens) else meta.maxContextTokens).toString()
+                        }
+                    }
+                },
+                enabled = !state.unavailable && (backend != Accelerator.TPU || state.tpuSupport.available),
                 label = { Text(backend.name) },
             )
         }
     }
-    if (!state.tensorLibraries) Text("TPU needs an optional build with Tensor libraries. CPU/GPU work with standard artifacts.", style = MaterialTheme.typography.bodySmall)
+    if (!state.tpuSupport.available) Text(state.tpuSupport.reason, style = MaterialTheme.typography.bodySmall)
+    if (accelerator == Accelerator.TPU) Text("TPU uses the E2B artifact matching this device. E4B TPU is unavailable.", style = MaterialTheme.typography.bodySmall)
     if (state.downloadsActive) Text("Finish or cancel model downloads before running inference.", style = MaterialTheme.typography.bodySmall)
     Text("Models to run", style = MaterialTheme.typography.titleMedium)
-    val slots = if (accelerator == Accelerator.TPU) listOf(ModelSlot.E2B_G5, ModelSlot.E2B_G6) else listOf(ModelSlot.E2B, ModelSlot.E4B)
+    val slots = if (accelerator == Accelerator.TPU) listOfNotNull(state.tpuSupport.slot) else listOf(ModelSlot.E2B, ModelSlot.E4B)
+    val readySlots = slots.filter { slot -> state.models.any { it.slot == slot && it.unavailableReason(accelerator, state.tpuSupport) == null } }
     slots.forEach { slot ->
-        val ready = state.models.any { it.slot == slot }
+        val model = state.models.firstOrNull { it.slot == slot }
+        val reason = model?.unavailableReason(accelerator, state.tpuSupport)
+        val ready = slot in readySlots
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = slot.name in selectedNames, enabled = ready && !state.unavailable, onCheckedChange = { checked ->
                 selectedNames = if (checked) selectedNames + slot.name else selectedNames - slot.name
             })
             Column {
                 Text(slot.label)
-                Text(if (ready) "Ready" else "Download from Models first", style = MaterialTheme.typography.labelSmall)
+                Text(if (ready) "Ready" else reason ?: "Download from Models first", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -286,7 +306,7 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
     }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     Button(
-        enabled = !state.unavailable,
+        enabled = !state.unavailable && readySlots.any { it.name in selectedNames },
         modifier = Modifier.fillMaxWidth().height(52.dp),
         onClick = {
             try {
@@ -301,7 +321,7 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
                     prompt = prompt,
                 )
                 settings.validate()
-                val selected = slots.filter { it.name in selectedNames && state.models.any { model -> model.slot == it } }.toSet()
+                val selected = readySlots.filter { it.name in selectedNames }.toSet()
                 require(selected.isNotEmpty()) { "Download and select at least one model." }
                 error = null
                 controller.run(selected, settings)

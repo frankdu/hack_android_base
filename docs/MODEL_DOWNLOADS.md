@@ -18,8 +18,12 @@ Our implementation uses the same official model repositories/files and a downloa
 |---|---|---|---:|---|
 | E2B | `litert-community/gemma-4-E2B-it-litert-lm` | `41c5569623a7c189d6eec3e5225260c58cedbce7` | 2,588,147,712 | `181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c` |
 | E4B | `litert-community/gemma-4-E4B-it-litert-lm` | `e6a3892a8c22cf87ff99583996149cf3cb32452b` | 3,659,530,240 | `0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0` |
+| E2B TPU G5 | `litert-community/gemma-4-E2B-it-litert-lm` | `41c5569623a7c189d6eec3e5225260c58cedbce7` | 3,113,545,589 | `af1082986639ecde7db95d91be6fe54f8b6b458104734c5bafc204e69d6852dc` |
+| E2B TPU G6 | `litert-community/gemma-4-E2B-it-litert-lm` | `41c5569623a7c189d6eec3e5225260c58cedbce7` | 3,313,938,293 | `f86c7c19c736e9307267946edef58b0a45494a9127036d54d90dd6b7617c95b7` |
 
 File names match Gallery. Revisions are the official repositories' current commits when this change was made, rather than Gallery's older commits. Size and SHA-256 came from Hugging Face's public LFS metadata and were independently confirmed against the resolved download response headers. Both URLs redirected to HTTP 200 without authentication. The full multi-GB files were not downloaded on the development host.
+
+The TPU filenames are `gemma-4-E2B-it_Google_Tensor_G5.litertlm` and `gemma-4-E2B-it_Google_Tensor_G6.litertlm`. Their pinned LFS sizes/checksums were checked against the official repository API on October 20, 2026. The controller rejects unsupported TPU download requests before enqueueing, including requests for a different Tensor generation.
 
 `ModelCatalog.kt` is the single source of download URL/revision/size/hash data. No remote configuration, tokens, model hub login or third-party inference service is used.
 
