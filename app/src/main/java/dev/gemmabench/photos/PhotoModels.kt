@@ -15,6 +15,11 @@ data class ObjectBox(val name: String, val left: Float, val top: Float, val righ
 
 enum class PhotoStatus { PENDING, ANALYZING, COMPLETED, FAILED }
 
+data class PhotoBatchProgress(val finished: Int = 0, val total: Int = 0, val failed: Int = 0) {
+    val fraction: Float get() = if (total == 0) 0f else finished.toFloat() / total
+    val label: String get() = "$finished of $total photos processed" + if (failed > 0) " · $failed failed" else ""
+}
+
 data class PhotoResult(
     val photo: DevicePhoto,
     val status: PhotoStatus = PhotoStatus.PENDING,
@@ -45,6 +50,12 @@ data class PhotoDemoState(
     val batchSize: Int = DEFAULT_BATCH_SIZE,
     val unsupportedSkipped: Int = 0,
 ) {
+    val batchProgress: PhotoBatchProgress get() = PhotoBatchProgress(
+        finished = results.count { it.status == PhotoStatus.COMPLETED || it.status == PhotoStatus.FAILED },
+        total = results.size,
+        failed = results.count { it.status == PhotoStatus.FAILED },
+    )
+
     companion object {
         const val DEFAULT_BATCH_SIZE = 10
         const val MAX_BATCH_SIZE = 50

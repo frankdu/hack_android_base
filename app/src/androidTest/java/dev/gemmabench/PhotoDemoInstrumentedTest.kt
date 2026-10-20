@@ -29,11 +29,54 @@ class PhotoDemoInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun screenshotsAreExcludedFromPagesAndEligibleCount() {
+        val resolver = context.contentResolver
+        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val library = PhotoLibrary(context)
+        val baseline = library.countEligiblePhotos()
+        val created = mutableListOf<android.net.Uri>()
+        val photos = mutableListOf<Long>()
+        fun insert(name: String, folder: String, eligible: Boolean) {
+            val uri = requireNotNull(resolver.insert(collection, ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, folder)
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }))
+            created += uri
+            val bitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+            try {
+                resolver.openOutputStream(uri)!!.use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            } finally { bitmap.recycle() }
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+            if (eligible) photos += android.content.ContentUris.parseId(uri)
+        }
+        try {
+            repeat(2) { index ->
+                insert("gemma-photo-filter-$index.jpg", "Pictures/GemmaDemoTests", true)
+                // More excluded rows than a query page, including renamed screenshots.
+                repeat(4) { screenshot ->
+                    insert("Screenshot_gemma-$index-$screenshot.jpg", "Pictures/GemmaDemoTests", false)
+                    insert("gemma-renamed-$index-$screenshot.jpg", "Pictures/Screenshots", false)
+                }
+            }
+            assertEquals(baseline + 2, library.countEligiblePhotos())
+            val first = library.nextBatch(android.content.ContentUris.parseId(created.last()) + 1, 1)
+            assertEquals(photos.last(), first.photos.single().id)
+            assertTrue(first.hasMore)
+            val second = library.nextBatch(first.photos.single().id, 1)
+            assertEquals(photos.first(), second.photos.single().id)
+            assertEquals(0, first.unsupportedSkipped)
+        } finally { created.forEach { resolver.delete(it, null, null) } }
+        assertEquals(baseline, library.countEligiblePhotos())
+    }
+
     @Test fun unsupportedSvgDoesNotShortenOrEndPhotoPages() {
         val resolver = context.contentResolver
         val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val created = mutableListOf<android.net.Uri>()
         val photos = mutableListOf<Long>()
+        val baseline = PhotoLibrary(context).countEligiblePhotos()
         try {
             repeat(3) { index ->
                 listOf("image/jpeg" to "jpg", "image/svg+xml" to "svg").forEach { (mime, extension) ->
@@ -58,6 +101,7 @@ class PhotoDemoInstrumentedTest {
                 }
             }
             val library = PhotoLibrary(context)
+            assertEquals(baseline + 3, library.countEligiblePhotos())
             val first = library.nextBatch(android.content.ContentUris.parseId(created.last()) + 1, 2)
             assertEquals(photos.takeLast(2).reversed(), first.photos.map { it.id })
             assertTrue(first.hasMore)

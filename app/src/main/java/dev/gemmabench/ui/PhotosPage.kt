@@ -35,6 +35,7 @@ import dev.gemmabench.LabState
 import dev.gemmabench.benchmark.*
 import dev.gemmabench.photos.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -43,8 +44,13 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
     val context = LocalContext.current
     var access by remember { mutableStateOf(PhotoPermissions.access(context)) }
     var previousAccess by remember { mutableStateOf(state.photos.accessScope ?: access) }
+    var libraryRevision by remember { mutableIntStateOf(0) }
+    var eligibleCount by remember { mutableStateOf<Long?>(null) }
+    var countError by remember { mutableStateOf(false) }
+    val library = remember(context) { PhotoLibrary(context) }
     LifecycleResumeEffect(Unit) {
         access = PhotoPermissions.access(context)
+        libraryRevision++
         onPauseOrDispose { }
     }
     LaunchedEffect(access, state.unavailable) {
@@ -57,6 +63,7 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
         val updated = PhotoPermissions.access(context)
         if (updated == access) controller.resetPhotos()
         access = updated
+        libraryRevision++
     }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri?.let(controller::exportPhotos)
@@ -67,6 +74,19 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
     val size = batchSize.toIntOrNull()
     val validSize = size != null && size in 1..PhotoDemoState.MAX_BATCH_SIZE
     val photos = state.photos
+    LaunchedEffect(access, libraryRevision, photos.batchNumber) {
+        eligibleCount = null
+        countError = false
+        if (access != PhotoAccess.DENIED) {
+            try {
+                eligibleCount = withContext(Dispatchers.IO) { library.countEligiblePhotos() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                countError = true
+            }
+        }
+    }
     val unfinished = photos.results.any { it.status == PhotoStatus.PENDING || it.status == PhotoStatus.ANALYZING }
     val accelerator = if (unfinished) Accelerator.valueOf(photos.textBackend) else Accelerator.valueOf(acceleratorName)
     val family = if (unfinished) {
@@ -98,7 +118,7 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
     LazyColumn(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Find major objects", style = MaterialTheme.typography.titleLarge)
-            Text("Read device photos in batches, newest added first. Each photo is analyzed locally with Gemma. Boxes are model estimates.", style = MaterialTheme.typography.bodyMedium)
+            Text("Read device photos in batches, newest added first. Detected screenshots are skipped. Each photo is analyzed locally with Gemma. Boxes are model estimates.", style = MaterialTheme.typography.bodyMedium)
         }
         item {
             Card {
@@ -108,6 +128,14 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
                         PhotoAccess.SELECTED -> "Access: selected photos only"
                         PhotoAccess.DENIED -> "Photo access required"
                     }, style = MaterialTheme.typography.titleSmall)
+                    if (access != PhotoAccess.DENIED) {
+                        Text(when {
+                            countError -> "Eligible photo count unavailable. Start over to retry."
+                            eligibleCount == null -> "Counting eligible photos…"
+                            else -> "Total eligible photos: $eligibleCount"
+                        }, style = MaterialTheme.typography.titleSmall)
+                        Text("Within granted access, excluding detected screenshots and unsupported formats.", style = MaterialTheme.typography.bodySmall)
+                    }
                     Text("Android lets you grant access to all photos or a selection. Changing access starts a fresh scan.", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = { permissions.launch(PhotoPermissions.requested()) }, enabled = !state.unavailable) {
                         Text(if (access == PhotoAccess.DENIED) "Grant photo access" else "Change photo access")
@@ -164,11 +192,16 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (unfinished) "Resume batch" else "Analyze next batch") }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = controller::resetPhotos, enabled = !state.unavailable) { Text("Start over") }
+                    OutlinedButton(onClick = { controller.resetPhotos(); libraryRevision++ }, enabled = !state.unavailable) { Text("Start over") }
                     OutlinedButton(onClick = { export.launch("gemma-photos-batch-${photos.batchNumber}.json") }, enabled = !state.unavailable && photos.results.isNotEmpty()) { Text("Export JSON") }
                 }
                 if (photos.batchNumber > 0) {
                     Text("Batch ${photos.batchNumber} · ${photos.results.size} photos · ${photos.modelLabel}", style = MaterialTheme.typography.titleSmall)
+                    if (photos.results.isNotEmpty()) {
+                        val progress = photos.batchProgress
+                        LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+                        Text(progress.label, style = MaterialTheme.typography.bodySmall)
+                    }
                     if (photos.unsupportedSkipped > 0) Text("Skipped ${photos.unsupportedSkipped} image file(s) unsupported by Android's photo decoder (such as SVG).", style = MaterialTheme.typography.bodySmall)
                     Text("Only the current batch is retained. Export before loading the next batch. Results clear when the app process exits.", style = MaterialTheme.typography.bodySmall)
                 }
@@ -195,7 +228,6 @@ private fun PhotoResultCard(result: PhotoResult, streaming: String) {
                 PhotoStatus.COMPLETED -> "${result.objects.size} object(s) · ${((result.elapsedMs ?: 0.0) / 1000).roundToInt()} s"
                 PhotoStatus.FAILED -> "Analysis failed"
             }, style = MaterialTheme.typography.bodySmall)
-            if (result.status == PhotoStatus.ANALYZING) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (result.attempts > 1) Text("Retried incomplete JSON · ${result.attempts} attempts", style = MaterialTheme.typography.bodySmall)
             PhotoOverlay(result)
             if (result.status == PhotoStatus.COMPLETED && result.objects.isEmpty()) Text("No major objects identified.")

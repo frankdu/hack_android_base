@@ -35,6 +35,7 @@ data class LabState(
     val engineRetained: Boolean = false,
     val downloads: List<ModelDownload> = emptyList(),
     val photos: PhotoDemoState = PhotoDemoState(),
+    val photoBatchProgress: PhotoBatchProgress? = null,
 ) {
     val downloadsActive: Boolean get() = downloads.any { it.active }
     val unavailable: Boolean get() = busy || downloadsActive
@@ -219,7 +220,8 @@ class LabController(private val app: Application) {
     fun analyzePhotos(slot: ModelSlot, accelerator: Accelerator, batchSize: Int, resume: Boolean = false) {
         if (!begin("Preparing photo batch…", inference = true)) return
         runtime.resetStop()
-        mutable.update { it.copy(engineRetained = false) }
+        mutable.update { it.copy(engineRetained = false,
+            photoBatchProgress = if (resume) it.photos.batchProgress else PhotoBatchProgress()) }
         scope.launch {
             try {
                 require(batchSize in 1..PhotoDemoState.MAX_BATCH_SIZE) { "Batch size must be 1–${PhotoDemoState.MAX_BATCH_SIZE}." }
@@ -253,6 +255,7 @@ class LabController(private val app: Application) {
                         unsupportedSkipped = page.unsupportedSkipped,
                     )) }
                 }
+                mutable.update { it.copy(photoBatchProgress = it.photos.batchProgress) }
                 val batch = state.value.photos.results
                 for ((index, result) in batch.withIndex()) {
                     if (state.value.stopRequested) break
@@ -316,9 +319,12 @@ class LabController(private val app: Application) {
     }
 
     private fun updatePhoto(index: Int, transform: (PhotoResult) -> PhotoResult) {
-        mutable.update { it.copy(photos = it.photos.copy(results = it.photos.results.mapIndexed { i, result ->
-            if (i == index) transform(result) else result
-        })) }
+        mutable.update { state ->
+            val photos = state.photos.copy(results = state.photos.results.mapIndexed { i, result ->
+                if (i == index) transform(result) else result
+            })
+            state.copy(photos = photos, photoBatchProgress = photos.batchProgress)
+        }
     }
 
     fun resetPhotos() {
@@ -418,7 +424,7 @@ class LabController(private val app: Application) {
         }
     }
 
-    private fun finish() { mutable.update { it.copy(busy = false, runningInference = false) } }
+    private fun finish() { mutable.update { it.copy(busy = false, runningInference = false, photoBatchProgress = null) } }
     private fun fail(e: Exception) {
         mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, progress = "Action failed. Details below.") }
     }

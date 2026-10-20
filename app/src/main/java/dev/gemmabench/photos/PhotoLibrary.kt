@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -40,11 +41,31 @@ data class PreparedPhoto(val file: File, val width: Int, val height: Int)
 
 class PhotoLibrary(private val context: Context) {
     private val previews = File(context.cacheDir, "photo-demo")
+    private val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    private val projection = arrayOf(
+        MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.MIME_TYPE,
+        MediaStore.Images.Media.RELATIVE_PATH, MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+    )
+
+    private fun Cursor.isScreenshot() = PhotoEligibility.isScreenshot(getString(1), getString(3), getString(4))
+    private fun Cursor.isSupported() = getString(2)?.let(ImageDecoder::isMimeTypeSupported) ?: true
+
+    /** Counts accessible, supported non-screenshot images without decoding image data. Call off the UI thread. */
+    fun countEligiblePhotos(): Long {
+        var count = 0L
+        requireNotNull(context.contentResolver.query(collection, projection, null, null, null)) {
+            "Android could not read the photo library. Try again."
+        }.use { cursor ->
+            while (cursor.moveToNext()) {
+                if (!cursor.isScreenshot() && cursor.isSupported()) count++
+            }
+        }
+        return count
+    }
 
     /** Keyset pagination avoids skipping/duplicating items when newer photos arrive between batches. */
     fun nextBatch(beforeId: Long?, size: Int): PhotoPage {
         require(size in 1..PhotoDemoState.MAX_BATCH_SIZE) { "Batch size must be 1–${PhotoDemoState.MAX_BATCH_SIZE}." }
-        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val id = MediaStore.Images.Media._ID
         fun queryArgs(cursorBefore: Long?) = Bundle().apply {
             putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(id))
@@ -58,19 +79,20 @@ class PhotoLibrary(private val context: Context) {
         val found = mutableListOf<DevicePhoto>()
         var scanBefore = beforeId
         var skipped = 0
-        // Filtering must scan past unsupported rows before deciding whether a page is full/exhausted.
+        // Scan past excluded rows before deciding whether a page is full/exhausted.
         while (found.size <= size) {
             var scanned = 0
             requireNotNull(context.contentResolver.query(
-                collection, arrayOf(id, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.MIME_TYPE),
+                collection, projection,
                 queryArgs(scanBefore), null,
             )) { "Android could not read the photo library. Try again." }.use { cursor ->
                 while (found.size <= size && cursor.moveToNext()) {
                     scanned++
                     val photoId = cursor.getLong(0)
                     scanBefore = photoId
+                    if (cursor.isScreenshot()) continue
                     val mime = cursor.getString(2)
-                    if (mime != null && !ImageDecoder.isMimeTypeSupported(mime)) {
+                    if (!cursor.isSupported()) {
                         // Lookahead rows will be scanned again on the next page; count them there.
                         if (found.size < size) skipped++
                         continue

@@ -97,7 +97,12 @@ private fun StatusCard(state: LabState, controller: LabController) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (state.downloadsActive && !state.busy) "Model downloads in progress · you can leave the app." else state.progress,
                 color = Color.White, style = MaterialTheme.typography.bodyMedium)
-            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Mint, trackColor = Color(0xFF39584D))
+            val photoProgress = state.photoBatchProgress
+            if (state.busy && photoProgress != null) {
+                LinearProgressIndicator(progress = { photoProgress.fraction }, modifier = Modifier.fillMaxWidth(),
+                    color = Mint, trackColor = Color(0xFF39584D))
+                Text(photoProgress.label, color = Color.White, style = MaterialTheme.typography.bodySmall)
+            } else if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Mint, trackColor = Color(0xFF39584D))
             if (state.runningInference) {
                 OutlinedButton(onClick = controller::stop, enabled = !state.stopRequested,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Mint)) {
