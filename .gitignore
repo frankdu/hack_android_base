@@ -1,0 +1,11 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+*.litertlm
+*.part
+.DS_Store
+artifacts/
+app/src/main/jniLibs/
