@@ -217,17 +217,18 @@ class PhotoDemoInstrumentedTest {
             val accelerator = Accelerator.valueOf(InstrumentationRegistry.getArguments().getString("photoAccelerator") ?: "CPU")
             val model = app.lab.state.value.models.firstOrNull { it.slot == slot }
             assumeTrue("Install E2B before the photo inference test.", model != null)
-            val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+            // Portrait image, mug at upper right: swapping X/Y moves it to lower left.
+            val bitmap = Bitmap.createBitmap(512, 768, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             canvas.drawColor(Color.WHITE)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLUE }
-            canvas.drawRoundRect(130f, 140f, 340f, 400f, 24f, 24f, paint)
+            canvas.drawRoundRect(260f, 100f, 410f, 340f, 24f, 24f, paint)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 24f
-            canvas.drawOval(290f, 180f, 420f, 340f, paint)
+            canvas.drawOval(370f, 140f, 458f, 280f, paint)
             paint.style = Paint.Style.FILL
             paint.color = Color.DKGRAY
-            canvas.drawOval(130f, 125f, 340f, 165f, paint)
+            canvas.drawOval(260f, 85f, 410f, 115f, paint)
             val jpeg = java.io.ByteArrayOutputStream().use { output ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
                 output.toByteArray()
@@ -251,6 +252,15 @@ class PhotoDemoInstrumentedTest {
                         Log.i("GemmaPhotoTest", "VISION ${index + 1}: ${measurement.elapsedMs} ms, reused=${measurement.engineReused}: ${measurement.output}")
                         val objects = PhotoObjects.parse(measurement.output.orEmpty())
                         assertTrue("Expected a major object for the generated blue mug", objects.isNotEmpty())
+                        val expected = ObjectBox("mug", 260f / 512 * 1000, 85f / 768 * 1000,
+                            470f / 512 * 1000, 340f / 768 * 1000)
+                        assertTrue("Expected a box overlapping the upper-right mug: $objects", objects.any { box ->
+                            val intersection = (minOf(box.right, expected.right) - maxOf(box.left, expected.left)).coerceAtLeast(0f) *
+                                (minOf(box.bottom, expected.bottom) - maxOf(box.top, expected.top)).coerceAtLeast(0f)
+                            val union = (box.right - box.left) * (box.bottom - box.top) +
+                                (expected.right - expected.left) * (expected.bottom - expected.top) - intersection
+                            intersection / union > 0.35f
+                        })
                         assertEquals(index > 0, measurement.engineReused)
                     }
                 } finally { runtime.unload() }

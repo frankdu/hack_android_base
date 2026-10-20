@@ -75,11 +75,13 @@ data class PhotoDemoState(
 }
 
 object PhotoObjects {
-    const val SCHEMA = """{"type":"object","properties":{"objects":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120},"box":{"type":"array","items":{"type":"integer","minimum":0,"maximum":1000},"minItems":4,"maxItems":4}},"required":["name","box"],"additionalProperties":false}}},"required":["objects"],"additionalProperties":false}"""
+    const val SCHEMA = """{"type":"object","properties":{"objects":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120},"box":{"type":"array","description":"[ymin, xmin, ymax, xmax], normalized to 0..1000 on the upright image","items":{"type":"integer","minimum":0,"maximum":1000},"minItems":4,"maxItems":4}},"required":["name","box"],"additionalProperties":false}}},"required":["objects"],"additionalProperties":false}"""
     const val PROMPT = """Identify up to 8 major visible objects in this image. Return JSON only:
-{"objects":[{"name":"object name","box":[left,top,right,bottom]}]}
+{"objects":[{"name":"object name","box":[ymin,xmin,ymax,xmax]}]}
 Each box tightly encloses that object. Coordinates are integers from 0 to 1000, normalized
-to the full image width and height, origin at top-left. left < right and top < bottom.
+to the full upright image, origin at top-left. The order is [top,left,bottom,right]:
+ymin and ymax are vertical positions relative to image height; xmin and xmax are horizontal
+positions relative to image width. ymin < ymax and xmin < xmax.
 Use short common object names. List separate instances separately. Do not invent objects.
 If there are no identifiable objects, return {"objects":[]}. No explanation or markdown."""
     val RETRY_PROMPT = PROMPT.replace("up to 8", "up to 4") + "\nKeep the response compact and finish the entire JSON object."
@@ -121,7 +123,9 @@ If there are no identifiable objects, return {"objects":[]}. No explanation or m
                 it.asFloat.also { v -> require(v.isFinite() && v in 0f..1000f) { "Box outside image for $name." } }
             }
             require(values[0] < values[2] && values[1] < values[3]) { "Empty or reversed box for $name." }
-            ObjectBox(name, values[0], values[1], values[2], values[3])
+            // Gemma's detection order is YXYX; rendering, persistence, and export use XYXY.
+            // https://ai.google.dev/gemma/docs/capabilities/vision/image#object-detection
+            ObjectBox(name, left = values[1], top = values[0], right = values[3], bottom = values[2])
         }
     }
 }

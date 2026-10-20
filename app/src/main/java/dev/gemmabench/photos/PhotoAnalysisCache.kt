@@ -22,7 +22,7 @@ data class PhotoCacheRequest(
 
     companion object {
         // Bump when preprocessing, response validation, or runtime sampling behavior changes.
-        const val PIPELINE_VERSION = 1
+        const val PIPELINE_VERSION = 2
 
         fun create(model: ModelArtifact, settings: RunSettings, visionBackend: String?, runtimeVersion: String) = PhotoCacheRequest(
             modelIdentifier = model.sha256.lowercase(), modelVariant = model.slot.name,

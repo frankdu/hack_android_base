@@ -34,6 +34,15 @@ Photos also enables the SDK's JSON-schema constraint provider for the required o
 
 Build, lint and all **28 unit tests** passed. Pixel instrumentation passed mixed JPEG/SVG pagination, EXIF orientation, and two generated-image requests through E2B G5 TPU text/GPU vision with schema constraints and engine reuse. The full original batch report was held only in memory; its debugger session disconnected before a complete snapshot could be saved. The exact affected ID range was then replayed with E2B G5 TPU text/GPU vision: **all 27 supported photos passed on the first attempt**, with zero decode/JSON/schema errors, in 285.8 seconds. The three SVG entries were excluded. A replay report is saved in ignored `artifacts/photo-replay-report.json` and in the app-private `files/photo-replay-report.json`. This checks pipeline reliability for the reported batch, not localization accuracy.
 
+## Photo bounding-box coordinate fix — October 20, 2026
+
+The reported overlays match an X/Y transposition. [Google's Gemma detection example](https://ai.google.dev/gemma/docs/capabilities/vision/image#object-detection) interprets model coordinates as `[ymin, xmin, ymax, xmax]`; the app had requested and parsed XYXY. The prompt and schema now specify YXYX, and parsing converts once to the existing XYXY display/storage/export format. The upright JPEG and overlay need no additional rotation. Pipeline version 2 prevents old cached coordinates from being reused.
+
+- All **37 unit tests** passed, including asymmetric coordinate conversion and old-cache invalidation. Debug app/test APK builds and Android lint passed.
+- The updated debug app was installed in place on the Pixel 10 Pro Fold, preserving app data.
+- Both device tests passed in 37.5 seconds: EXIF normalization/pagination and real E2B CPU inference on a generated 512×768 portrait image with a mug at the upper right. Both requests returned `[112,493,444,923]` in YXYX order, which converts to `[493,112,923,444]` and overlaps the known mug bounds above the test's 0.35 IoU threshold. The second request reused the engine. This asymmetric fixture exposes the axis swap that the earlier centered square fixture could not.
+- The user's photos were not replayed in this validation. Boxes remain model estimates; this verifies coordinate interpretation and generated-image localization.
+
 ## Pixel download validation
 
 A **Pixel 10 Pro Fold, Tensor G5, Android 17** became available during the download feature implementation. The updated debug APK was installed successfully.

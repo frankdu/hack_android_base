@@ -38,4 +38,12 @@ class PhotoCacheKeyTest {
         assertNotEquals(request.key(photo, null), request.key(photo.copy(sourceRevision = "2:2:3"), null))
         assertNotEquals(request.key(photo, null), request.key(photo.copy(name = "Screenshot.jpg"), null))
     }
+
+    @Test fun oldCoordinatePipelineCannotReuseCachedBoxes() {
+        val oldRequest = com.google.gson.JsonParser.parseString(request.requestJson).asJsonObject.apply {
+            addProperty("pipelineVersion", 1)
+        }
+        val oldPipeline = request.copy(requestJson = oldRequest.toString())
+        assertNotEquals(oldPipeline.key(photo, input), request.key(photo, input))
+    }
 }
