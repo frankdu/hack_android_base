@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import java.io.File
+import java.io.IOException
 import kotlin.math.roundToInt
 
 enum class PhotoAccess { FULL, SELECTED, DENIED }
@@ -34,7 +35,7 @@ object PhotoPermissions {
     }
 }
 
-data class PhotoPage(val photos: List<DevicePhoto>, val hasMore: Boolean)
+data class PhotoPage(val photos: List<DevicePhoto>, val hasMore: Boolean, val unsupportedSkipped: Int = 0)
 data class PreparedPhoto(val file: File, val width: Int, val height: Int)
 
 class PhotoLibrary(private val context: Context) {
@@ -45,29 +46,57 @@ class PhotoLibrary(private val context: Context) {
         require(size in 1..PhotoDemoState.MAX_BATCH_SIZE) { "Batch size must be 1–${PhotoDemoState.MAX_BATCH_SIZE}." }
         val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val id = MediaStore.Images.Media._ID
-        val args = Bundle().apply {
+        fun queryArgs(cursorBefore: Long?) = Bundle().apply {
             putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(id))
             putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
             putInt(ContentResolver.QUERY_ARG_LIMIT, size + 1)
-            if (beforeId != null) {
+            if (cursorBefore != null) {
                 putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "$id < ?")
-                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(beforeId.toString()))
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(cursorBefore.toString()))
             }
         }
         val found = mutableListOf<DevicePhoto>()
-        requireNotNull(context.contentResolver.query(
-            collection, arrayOf(id, MediaStore.Images.Media.DISPLAY_NAME), args, null,
-        )) { "Android could not read the photo library. Try again." }.use { cursor ->
-            while (found.size <= size && cursor.moveToNext()) {
-                val photoId = cursor.getLong(0)
-                found += DevicePhoto(photoId, ContentUris.withAppendedId(collection, photoId).toString(), cursor.getString(1) ?: "Photo $photoId")
+        var scanBefore = beforeId
+        var skipped = 0
+        // Filtering must scan past unsupported rows before deciding whether a page is full/exhausted.
+        while (found.size <= size) {
+            var scanned = 0
+            requireNotNull(context.contentResolver.query(
+                collection, arrayOf(id, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.MIME_TYPE),
+                queryArgs(scanBefore), null,
+            )) { "Android could not read the photo library. Try again." }.use { cursor ->
+                while (found.size <= size && cursor.moveToNext()) {
+                    scanned++
+                    val photoId = cursor.getLong(0)
+                    scanBefore = photoId
+                    val mime = cursor.getString(2)
+                    if (mime != null && !ImageDecoder.isMimeTypeSupported(mime)) {
+                        // Lookahead rows will be scanned again on the next page; count them there.
+                        if (found.size < size) skipped++
+                        continue
+                    }
+                    found += DevicePhoto(photoId, ContentUris.withAppendedId(collection, photoId).toString(),
+                        cursor.getString(1) ?: "Photo $photoId", mime)
+                }
             }
+            if (scanned < size + 1) break
         }
-        return PhotoPage(found.take(size), found.size > size)
+        return PhotoPage(found.take(size), found.size > size, skipped)
     }
 
     /** ImageDecoder applies EXIF orientation before resizing. Only one full decode is held at a time. */
     fun prepare(photo: DevicePhoto): PreparedPhoto {
+        require(photo.mimeType == null || ImageDecoder.isMimeTypeSupported(photo.mimeType)) {
+            "Android cannot decode ${photo.mimeType} images. Choose a supported photo format."
+        }
+        try {
+            return decode(photo)
+        } catch (e: IOException) {
+            throw IOException("Cannot decode this photo. Its image data may be damaged or unavailable.", e)
+        }
+    }
+
+    private fun decode(photo: DevicePhoto): PreparedPhoto {
         val source = ImageDecoder.createSource(context.contentResolver, Uri.parse(photo.uri))
         val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE

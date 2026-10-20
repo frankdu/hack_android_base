@@ -29,6 +29,90 @@ class PhotoDemoInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun unsupportedSvgDoesNotShortenOrEndPhotoPages() {
+        val resolver = context.contentResolver
+        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val created = mutableListOf<android.net.Uri>()
+        val photos = mutableListOf<Long>()
+        try {
+            repeat(3) { index ->
+                listOf("image/jpeg" to "jpg", "image/svg+xml" to "svg").forEach { (mime, extension) ->
+                    val uri = requireNotNull(resolver.insert(collection, ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, "gemma-format-test-$index.$extension")
+                        put(MediaStore.Images.Media.MIME_TYPE, mime)
+                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/GemmaDemoTests")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }))
+                    created += uri
+                    resolver.openOutputStream(uri)!!.use { output ->
+                        if (extension == "svg") output.write("""<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>""".toByteArray())
+                        else {
+                            val bitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+                            bitmap.eraseColor(Color.BLUE)
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+                            bitmap.recycle()
+                            photos += android.content.ContentUris.parseId(uri)
+                        }
+                    }
+                    resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+                }
+            }
+            val library = PhotoLibrary(context)
+            val first = library.nextBatch(android.content.ContentUris.parseId(created.last()) + 1, 2)
+            assertEquals(photos.takeLast(2).reversed(), first.photos.map { it.id })
+            assertTrue(first.hasMore)
+            assertEquals(2, first.unsupportedSkipped)
+            val second = library.nextBatch(first.photos.last().id, 1)
+            assertEquals(photos.first(), second.photos.single().id)
+            assertEquals(1, second.unsupportedSkipped)
+        } finally { created.forEach { resolver.delete(it, null, null) } }
+    }
+
+    /** Explicit opt-in: replay a bounded range from the user's reported batch, locally. */
+    @Test fun replayReportedPhotoRange(): Unit = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(args.getString("photoReplay") == "true")
+        val before = requireNotNull(args.getString("photoBeforeId")).toLong()
+        val minimum = requireNotNull(args.getString("photoMinId")).toLong()
+        val slot = ModelSlot.valueOf(args.getString("photoModel") ?: "E2B")
+        val accelerator = Accelerator.valueOf(args.getString("photoAccelerator") ?: "CPU")
+        val storage = LabStorage(context)
+        val artifact = storage.models().single { it.slot == slot }
+        val library = PhotoLibrary(context)
+        val page = library.nextBatch(before, 50)
+        val photos = page.photos.filter { it.id >= minimum }
+        assertTrue(photos.isNotEmpty())
+        val runtime = LiteRtRuntime(context, storage::file)
+        val settings = RunSettings(workload = Workload.PROMPT, accelerator = accelerator,
+            contextTokens = artifact.metadata?.takeIf { !it.dynamicContext }?.maxContextTokens?.takeIf { it > 0 } ?: 4096,
+            outputTokens = 1024, prompt = PhotoObjects.PROMPT)
+        val results = mutableListOf<Map<String, Any?>>()
+        try {
+            withContext(Dispatchers.IO) {
+                runtime.resetStop()
+                for ((index, photo) in photos.withIndex()) {
+                    var raw = ""
+                    var attempts = 0
+                    var tokens = 0
+                    try {
+                        val prepared = library.prepare(photo)
+                        val jpeg = prepared.file.readBytes()
+                        val objects = analyzePhotoResponse(settings,
+                            { runtime.analyzePhoto(artifact, it, jpeg) {} },
+                            { attempt, _, measurement -> raw = measurement.output.orEmpty(); attempts = attempt; tokens = measurement.metrics.decodeTokens }, {})
+                        results += mapOf("id" to photo.id, "objects" to objects, "rawOutput" to raw, "attempts" to attempts, "decodeTokens" to tokens, "status" to "completed")
+                        Log.i("GemmaPhotoReplay", "${index + 1}/${photos.size} id=${photo.id} objects=${objects.size} attempts=$attempts decoded=$tokens OK")
+                    } catch (e: Exception) {
+                        results += mapOf("id" to photo.id, "rawOutput" to raw, "attempts" to attempts, "error" to e.message, "status" to "failed")
+                        Log.e("GemmaPhotoReplay", "${index + 1}/${photos.size} id=${photo.id} ${e.javaClass.simpleName}: ${e.message}")
+                    }
+                    java.io.File(context.filesDir, "photo-replay-report.json").writeText(storage.gson.toJson(results))
+                }
+            }
+        } finally { runtime.unload() }
+        assertEquals("Replay report contains failures", 0, results.count { it["status"] == "failed" })
+    }
+
     @Test fun pagesWithoutDuplicatesAndNormalizesExif() {
         val resolver = context.contentResolver
         val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -81,7 +165,9 @@ class PhotoDemoInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             val app = context.applicationContext as GemmaBenchApplication
             withTimeout(15_000) { while (app.lab.state.value.busy) kotlinx.coroutines.delay(100) }
-            val model = app.lab.state.value.models.firstOrNull { it.slot == ModelSlot.E2B }
+            val slot = ModelSlot.valueOf(InstrumentationRegistry.getArguments().getString("photoModel") ?: "E2B")
+            val accelerator = Accelerator.valueOf(InstrumentationRegistry.getArguments().getString("photoAccelerator") ?: "CPU")
+            val model = app.lab.state.value.models.firstOrNull { it.slot == slot }
             assumeTrue("Install E2B before the photo inference test.", model != null)
             val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
@@ -109,7 +195,9 @@ class PhotoDemoInstrumentedTest {
                     runtime.resetStop()
                     repeat(2) { index ->
                         val measurement = runtime.analyzePhoto(artifact, RunSettings(
-                            workload = Workload.PROMPT, contextTokens = 4096, outputTokens = 768,
+                            workload = Workload.PROMPT, accelerator = accelerator,
+                            contextTokens = artifact.metadata?.takeIf { !it.dynamicContext }?.maxContextTokens?.takeIf { it > 0 } ?: 4096,
+                            outputTokens = 1024,
                             prompt = PhotoObjects.PROMPT,
                         ), jpeg) { }
                         Log.i("GemmaPhotoTest", "VISION ${index + 1}: ${measurement.elapsedMs} ms, reused=${measurement.engineReused}: ${measurement.output}")

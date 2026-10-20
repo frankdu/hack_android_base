@@ -169,6 +169,7 @@ fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = 
                 }
                 if (photos.batchNumber > 0) {
                     Text("Batch ${photos.batchNumber} · ${photos.results.size} photos · ${photos.modelLabel}", style = MaterialTheme.typography.titleSmall)
+                    if (photos.unsupportedSkipped > 0) Text("Skipped ${photos.unsupportedSkipped} image file(s) unsupported by Android's photo decoder (such as SVG).", style = MaterialTheme.typography.bodySmall)
                     Text("Only the current batch is retained. Export before loading the next batch. Results clear when the app process exits.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (!photos.hasMore) Text("End of accessible photos. Start over to include newly added photos.")
@@ -195,6 +196,7 @@ private fun PhotoResultCard(result: PhotoResult, streaming: String) {
                 PhotoStatus.FAILED -> "Analysis failed"
             }, style = MaterialTheme.typography.bodySmall)
             if (result.status == PhotoStatus.ANALYZING) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (result.attempts > 1) Text("Retried incomplete JSON · ${result.attempts} attempts", style = MaterialTheme.typography.bodySmall)
             PhotoOverlay(result)
             if (result.status == PhotoStatus.COMPLETED && result.objects.isEmpty()) Text("No major objects identified.")
             SelectionContainer {

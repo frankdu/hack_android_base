@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhotoObjectsTest {
+    @Test fun truncatedAndMalformedJsonProduceActionableErrorsAndNeverPartialDetections() {
+        listOf("", "{\"objects\":[", """{"objects":[{"name":"cat","box":[0,0,100,100]}""",
+            "{\"objects\":not_json}").forEach { text ->
+            val error = assertThrows(PhotoResponseException::class.java) { PhotoObjects.parse(text) }
+            assertTrue(error.message!!.contains("response", ignoreCase = true))
+        }
+    }
+
+    @Test fun rejectsTrailingContentAndDoesNotAcceptCommentsAsJson() {
+        listOf("{\"objects\":[]} trailing", "{\"objects\":[]}{}", "{/*comment*/\"objects\":[]}").forEach {
+            assertThrows(IllegalArgumentException::class.java) { PhotoObjects.parse(it) }
+        }
+    }
+
     @Test fun parsesSeparateInstancesAndEdgeCoordinates() {
         val objects = PhotoObjects.parse("""{"objects":[{"name":"cat","box":[0,0,500,1000]},{"name":"cat","box":[501,20,1000,999]}]}""")
         assertEquals(2, objects.size)

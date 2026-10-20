@@ -2,6 +2,7 @@ package dev.gemmabench
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import dev.gemmabench.benchmark.*
 import dev.gemmabench.data.CsvExport
 import dev.gemmabench.data.LabStorage
@@ -231,7 +232,7 @@ class LabController(private val app: Application) {
                 } ?: 4096
                 val settings = RunSettings(
                     accelerator = accelerator, workload = Workload.PROMPT, contextTokens = contextTokens,
-                    outputTokens = 768, repetitions = 1, warmups = 0, cooldownSeconds = 0, prompt = PhotoObjects.PROMPT,
+                    outputTokens = minOf(1024, contextTokens - 320), repetitions = 1, warmups = 0, cooldownSeconds = 0, prompt = PhotoObjects.PROMPT,
                 )
                 settings.validate()
                 validateBackend(model, settings)
@@ -249,6 +250,7 @@ class LabController(private val app: Application) {
                         modelLabel = model.slot.label, modelSha256 = model.sha256,
                         modelSlot = slot, accessScope = PhotoPermissions.access(app),
                         textBackend = accelerator.name, batchSize = batchSize,
+                        unsupportedSkipped = page.unsupportedSkipped,
                     )) }
                 }
                 val batch = state.value.photos.results
@@ -257,24 +259,42 @@ class LabController(private val app: Application) {
                     if (result.status != PhotoStatus.PENDING) continue
                     mutable.update { it.copy(progress = "Batch ${it.photos.batchNumber} · photo ${index + 1}/${batch.size} · ${result.photo.name}", output = "") }
                     updatePhoto(index) { it.copy(status = PhotoStatus.ANALYZING, error = null) }
+                    var stage = "image_decode"
                     try {
                         val prepared = photoLibrary.prepare(result.photo)
                         updatePhoto(index) { it.copy(previewPath = prepared.file.absolutePath, width = prepared.width, height = prepared.height) }
                         if (state.value.stopRequested) break
-                        val measurement = runtime.analyzePhoto(model, settings, prepared.file.readBytes()) { text ->
-                            mutable.update { it.copy(output = text) }
-                        }
-                        val raw = measurement.output.orEmpty()
-                        mutable.update { it.copy(photos = it.photos.copy(visionBackend = runtime.photoVisionBackend)) }
-                        updatePhoto(index) { it.copy(rawOutput = raw, elapsedMs = measurement.elapsedMs) }
-                        val objects = PhotoObjects.parse(raw)
+                        val jpeg = prepared.file.readBytes()
+                        val objects = analyzePhotoResponse(settings,
+                            infer = { request ->
+                                stage = "inference"
+                                updatePhoto(index) { it.copy(attempts = it.attempts + 1, outputTokenLimit = request.outputTokens) }
+                                runtime.analyzePhoto(model, request, jpeg) { text -> mutable.update { it.copy(output = text) } }
+                            },
+                            onMeasurement = { attempt, request, measurement ->
+                                stage = "response_validation"
+                                mutable.update { it.copy(photos = it.photos.copy(visionBackend = runtime.photoVisionBackend)) }
+                                updatePhoto(index) { it.copy(rawOutput = measurement.output.orEmpty(),
+                                    elapsedMs = (it.elapsedMs ?: 0.0) + measurement.elapsedMs, attempts = attempt,
+                                    decodeTokens = measurement.metrics.decodeTokens, outputTokenLimit = request.outputTokens) }
+                            },
+                            onRetry = {
+                                mutable.update { it.copy(progress = "Photo ${index + 1}/${batch.size} · retrying incomplete JSON with a shorter object list…") }
+                                Log.w("GemmaPhotos", "photo=${index + 1}/${batch.size} model=${slot.name} text=$accelerator retry=malformed_json")
+                            },
+                        )
                         updatePhoto(index) { it.copy(status = PhotoStatus.COMPLETED, objects = objects) }
                     } catch (e: CancellationException) {
                         if (!state.value.stopRequested) throw e
                         break
                     } catch (e: Exception) {
                         if (state.value.stopRequested) break
-                        updatePhoto(index) { it.copy(status = PhotoStatus.FAILED, error = e.message ?: e.javaClass.simpleName) }
+                        val kind = if (e is PhotoResponseException) "model_json" else stage
+                        val failed = state.value.photos.results[index]
+                        Log.w("GemmaPhotos", "photo=${index + 1}/${batch.size} model=${slot.name} text=$accelerator stage=$kind " +
+                            "attempts=${failed.attempts} decoded=${failed.decodeTokens} limit=${failed.outputTokenLimit} " +
+                            "chars=${failed.rawOutput.length} exception=${e.javaClass.simpleName}")
+                        updatePhoto(index) { it.copy(status = PhotoStatus.FAILED, errorKind = kind, error = e.message ?: e.javaClass.simpleName) }
                     }
                 }
                 mutable.update { it.copy(progress = when {
@@ -321,12 +341,15 @@ class LabController(private val app: Application) {
                     "model" to photos.modelLabel, "sha256" to photos.modelSha256,
                     "textBackend" to photos.textBackend, "visionBackend" to photos.visionBackend,
                     "batch" to photos.batchNumber, "batchSize" to photos.batchSize,
+                    "unsupportedImagesSkipped" to photos.unsupportedSkipped,
                     "coordinates" to "Estimated boxes [left, top, right, bottom], 0..1000, origin top-left of upright image",
                     "photos" to photos.results.map { result -> mapOf(
                         "photo" to result.photo, "status" to result.status,
                         "uprightInputWidth" to result.width, "uprightInputHeight" to result.height,
                         "objects" to result.objects, "elapsedMs" to result.elapsedMs,
                         "rawOutput" to result.rawOutput, "error" to result.error,
+                        "attempts" to result.attempts, "decodeTokens" to result.decodeTokens,
+                        "outputTokenLimit" to result.outputTokenLimit, "errorKind" to result.errorKind,
                     ) },
                 )
                 app.contentResolver.openOutputStream(uri, "wt").use {

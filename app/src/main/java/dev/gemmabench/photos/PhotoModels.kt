@@ -1,9 +1,14 @@
 package dev.gemmabench.photos
 
 import com.google.gson.JsonParser
+import com.google.gson.JsonParseException
+import com.google.gson.Strictness
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
+import java.io.StringReader
 import dev.gemmabench.benchmark.ModelSlot
 
-data class DevicePhoto(val id: Long, val uri: String, val name: String)
+data class DevicePhoto(val id: Long, val uri: String, val name: String, val mimeType: String? = null)
 
 /** Coordinates use the upright image, origin top-left, on a 0..1000 scale. */
 data class ObjectBox(val name: String, val left: Float, val top: Float, val right: Float, val bottom: Float)
@@ -20,6 +25,10 @@ data class PhotoResult(
     val rawOutput: String = "",
     val elapsedMs: Double? = null,
     val error: String? = null,
+    val attempts: Int = 0,
+    val decodeTokens: Int? = null,
+    val outputTokenLimit: Int? = null,
+    val errorKind: String? = null,
 )
 
 data class PhotoDemoState(
@@ -34,6 +43,7 @@ data class PhotoDemoState(
     val textBackend: String = "",
     val visionBackend: String? = null,
     val batchSize: Int = DEFAULT_BATCH_SIZE,
+    val unsupportedSkipped: Int = 0,
 ) {
     companion object {
         const val DEFAULT_BATCH_SIZE = 10
@@ -42,18 +52,32 @@ data class PhotoDemoState(
 }
 
 object PhotoObjects {
+    const val SCHEMA = """{"type":"object","properties":{"objects":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120},"box":{"type":"array","items":{"type":"integer","minimum":0,"maximum":1000},"minItems":4,"maxItems":4}},"required":["name","box"],"additionalProperties":false}}},"required":["objects"],"additionalProperties":false}"""
     const val PROMPT = """Identify up to 8 major visible objects in this image. Return JSON only:
 {"objects":[{"name":"object name","box":[left,top,right,bottom]}]}
 Each box tightly encloses that object. Coordinates are integers from 0 to 1000, normalized
 to the full image width and height, origin at top-left. left < right and top < bottom.
 Use short common object names. List separate instances separately. Do not invent objects.
 If there are no identifiable objects, return {"objects":[]}. No explanation or markdown."""
+    val RETRY_PROMPT = PROMPT.replace("up to 8", "up to 4") + "\nKeep the response compact and finish the entire JSON object."
 
     fun parse(text: String): List<ObjectBox> {
         val json = text.trim().let {
             if (it.startsWith("```")) it.substringAfter('\n').substringBeforeLast("```").trim() else it
         }
-        val root = JsonParser.parseString(json)
+        if (json.isBlank()) throw PhotoResponseException("Gemma returned an empty response. See raw response.")
+        val root = try {
+            JsonReader(StringReader(json)).use { reader ->
+                reader.strictness = Strictness.STRICT
+                val value = JsonParser.parseReader(reader)
+                require(reader.peek() == JsonToken.END_DOCUMENT) { "Unexpected content after objects JSON." }
+                value
+            }
+        } catch (e: JsonParseException) {
+            throw PhotoResponseException("Gemma returned incomplete or malformed JSON. See raw response.", e)
+        } catch (e: java.io.IOException) {
+            throw PhotoResponseException("Gemma returned incomplete or malformed JSON. See raw response.", e)
+        }
         require(root.isJsonObject && root.asJsonObject.has("objects") && root.asJsonObject["objects"].isJsonArray) {
             "Gemma did not return the expected objects JSON. See raw response."
         }

@@ -17,8 +17,10 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.Modality
 import com.google.ai.edge.litertlm.ThinkingConfig
+import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.benchmark
 import dev.gemmabench.benchmark.*
+import dev.gemmabench.photos.PhotoObjects
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -166,6 +168,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             maxOutputToken = settings.outputTokens,
             thinkingConfig = ThinkingConfig(enableThinking = false, thinkingTokenBudget = 0),
             enableSpeculativeDecoding = settings.speculativeDecoding,
+            enableResponseFormat = jpeg != null,
         ))
         val setupMs = elapsedMs(conversationStart)
         synchronized(conversationLock) { activeConversation = conversation }
@@ -177,7 +180,9 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             val requestStart = SystemClock.elapsedRealtimeNanos()
             val contents = if (jpeg == null) Contents.of(settings.prompt)
                 else Contents.of(Content.ImageBytes(jpeg), Content.Text(settings.prompt))
-            conversation.sendMessageAsync(contents).collect { message ->
+            conversation.sendMessageAsync(contents,
+                responseFormat = if (jpeg != null) ResponseFormat.json(PhotoObjects.SCHEMA) else null,
+            ).bufferInferenceChunks().collect { message ->
                 val text = message.toString()
                 if (text.isNotEmpty()) {
                     if (firstVisibleMs == null) firstVisibleMs = elapsedMs(requestStart)

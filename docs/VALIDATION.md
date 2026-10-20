@@ -24,6 +24,16 @@ Initial implementation: October 19, 2026.
 - Photos now shows E2B/E4B in one row and CPU/GPU/TPU in a separate row. Installed artifact metadata and the device capability probe govern enabled choices. Visual verification remains pending while the phone is securely locked.
 - Actual TPU initialization, throughput and photo inference, G6 hardware, and runtime failure behavior on other firmware remain device coverage boundaries. Use the opt-in download test below with `-e downloadTpu true` to provision only the matching TPU artifact in addition to standard models.
 
+## Photo decoder and incomplete-JSON fixes — October 20, 2026
+
+The reported batch used E2B Tensor G5 with TPU text and GPU vision, completing 22 of 30 entries. MediaStore metadata for that range contained three `image/svg+xml` files; those are not supported by Android ImageDecoder. The old pipeline attempted to decode every MediaStore image. It now checks platform MIME support, skips unsupported rows, fills pages across filtered rows and reports the skipped count. Corrupt/unavailable files still produce a per-photo decoding error.
+
+The pinned LiteRT-LM 0.18.0 [callbackFlow implementation](https://github.com/google-ai-edge/LiteRT-LM/blob/v0.18.0/kotlin/java/com/google/ai/edge/litertlm/Conversation.kt) ignores failed `trySend` calls, which can drop chunks when its default channel fills. The adapter now fuses that flow with an unlimited queue; individual requests remain bounded by their token budget. A regression test reproduces bursty unchecked callbacks with a slow consumer and verifies the complete JSON survives.
+
+Photos also enables the SDK's JSON-schema constraint provider for the required objects/name/box structure, increases the output budget from 768 to at most 1024 tokens, rejects malformed/trailing JSON, and retries syntax failures once with a fresh conversation asking for fewer objects. Coordinates remain strictly validated; incomplete output is never repaired into invented detections. Exports include attempts, decode counts, limits and error category, and sanitized `GemmaPhotos` logcat entries identify failure stages without logging personal image content or raw responses.
+
+Build, lint and all **28 unit tests** passed. Pixel instrumentation passed mixed JPEG/SVG pagination, EXIF orientation, and two generated-image requests through E2B G5 TPU text/GPU vision with schema constraints and engine reuse. The full original batch report was held only in memory; its debugger session disconnected before a complete snapshot could be saved. The exact affected ID range was then replayed with E2B G5 TPU text/GPU vision: **all 27 supported photos passed on the first attempt**, with zero decode/JSON/schema errors, in 285.8 seconds. The three SVG entries were excluded. A replay report is saved in ignored `artifacts/photo-replay-report.json` and in the app-private `files/photo-replay-report.json`. This checks pipeline reliability for the reported batch, not localization accuracy.
+
 ## Pixel download validation
 
 A **Pixel 10 Pro Fold, Tensor G5, Android 17** became available during the download feature implementation. The updated debug APK was installed successfully.
