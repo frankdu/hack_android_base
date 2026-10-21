@@ -1,0 +1,26 @@
+Dictionary speech comparison
+
+Kokoro-82M v1.0 by hexgrad, including the Adam (am_adam) voice style: Apache-2.0.
+Original: https://huggingface.co/hexgrad/Kokoro-82M
+INT8 ONNX conversion and voice: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
+Pinned conversion revision: 1939ad2a8e416c0acfeecc08a694d14ef25f2231
+The selected voice is copied without modification.
+
+KittenTTS Nano v0.8 INT8 by KittenML, including the Kiki (expr-voice-5-f) voice style: Apache-2.0.
+https://huggingface.co/KittenML/kitten-tts-nano-0.8-int8
+Pinned revision: 84781d74e29ee25217551556398b42f80593a813
+The selected voice is extracted from voices.npz and stored as little-endian float32.
+Tokenization is adapted from KittenTTS 0.8's Apache-2.0 reference implementation.
+https://github.com/KittenML/KittenTTS/releases/tag/0.8
+
+ONNX Runtime 1.31.0 by Microsoft: MIT.
+https://github.com/microsoft/onnxruntime/tree/v1.31.0
+Runtime third-party notices and license texts are in tts/licenses/.
+
+Pronunciations are generated from our dictionary using Misaki 0.9.4 (Apache-2.0)
+and the eSpeak NG phonemizer as a build-time tool. The Android app includes
+token IDs only; no eSpeak or phonemizer code or voice database is distributed.
+https://github.com/hexgrad/misaki
+
+Android's TextToSpeech API uses a separately installed system engine and voice.
+The application does not redistribute that engine or its model weights.

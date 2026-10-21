@@ -1,0 +1,82 @@
+{
+  "environment": "macOS ARM64 host, ONNX Runtime 1.24.1 CPU, two intra-op threads; NOT Pixel phone timings",
+  "date": "2026-10-21",
+  "voices": {
+    "kokoro": "am_adam",
+    "kitten": "expr-voice-5-f (Kiki)"
+  },
+  "records": [
+    {
+      "model": "kokoro",
+      "voice": "am_adam",
+      "word": "dog",
+      "loadMs": 285,
+      "synthesisMs": 427,
+      "audioMs": 1050,
+      "rms": 0.10227752476930618
+    },
+    {
+      "model": "kokoro",
+      "voice": "am_adam",
+      "word": "dog",
+      "loadMs": 0,
+      "synthesisMs": 449,
+      "audioMs": 1050,
+      "rms": 0.10227752476930618
+    },
+    {
+      "model": "kokoro",
+      "voice": "am_adam",
+      "word": "butterfly",
+      "loadMs": 0,
+      "synthesisMs": 659,
+      "audioMs": 1500,
+      "rms": 0.10423304885625839
+    },
+    {
+      "model": "kokoro",
+      "voice": "am_adam",
+      "word": "ice cream",
+      "loadMs": 0,
+      "synthesisMs": 702,
+      "audioMs": 1500,
+      "rms": 0.10528066009283066
+    },
+    {
+      "model": "kitten",
+      "voice": "expr-voice-5-f (Kiki)",
+      "word": "dog",
+      "loadMs": 231,
+      "synthesisMs": 195,
+      "audioMs": 1242,
+      "rms": 0.06048576161265373
+    },
+    {
+      "model": "kitten",
+      "voice": "expr-voice-5-f (Kiki)",
+      "word": "dog",
+      "loadMs": 0,
+      "synthesisMs": 163,
+      "audioMs": 1242,
+      "rms": 0.060754045844078064
+    },
+    {
+      "model": "kitten",
+      "voice": "expr-voice-5-f (Kiki)",
+      "word": "butterfly",
+      "loadMs": 0,
+      "synthesisMs": 237,
+      "audioMs": 1717,
+      "rms": 0.06827450543642044
+    },
+    {
+      "model": "kitten",
+      "voice": "expr-voice-5-f (Kiki)",
+      "word": "ice cream",
+      "loadMs": 0,
+      "synthesisMs": 210,
+      "audioMs": 1542,
+      "rms": 0.0542466826736927
+    }
+  ]
+}

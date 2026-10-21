@@ -24,6 +24,7 @@ android {
     // Package the source dictionary directly so it remains the single source of truth.
     sourceSets["main"].assets.directories += rootProject.file("seed").path
     sourceSets["test"].resources.directories += rootProject.file("seed").path
+    sourceSets["test"].resources.directories += file("src/main/assets/tts").path
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -50,6 +51,7 @@ dependencies {
         runtimeOnly("com.google.ai.edge.litert:litert-npu-runtime-google-tensor:2.3.0")
     }
     implementation("com.google.code.gson:gson:2.13.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.0")
     implementation("org.opencv:opencv:4.13.0")
     implementation("androidx.room:room-runtime:2.8.5")
     ksp("androidx.room:room-compiler:2.8.5")

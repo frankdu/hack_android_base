@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.gemmabench.LabController
 import dev.gemmabench.LabState
 import dev.gemmabench.benchmark.*
+import dev.gemmabench.settings.selectLocalLlm
 import dev.gemmabench.photos.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -82,8 +83,11 @@ private fun ObjectPhotosPage(state: LabState, controller: LabController, modifie
         uri?.let(controller::exportPhotos)
     }
     var batchSize by rememberSaveable { mutableStateOf(PhotoDemoState.DEFAULT_BATCH_SIZE.toString()) }
-    var familyName by rememberSaveable { mutableStateOf(ModelSlot.E2B.name) }
-    var acceleratorName by rememberSaveable { mutableStateOf(Accelerator.CPU.name) }
+    val defaultChoice = selectLocalLlm(state.models, state.tpuSupport, state.preferredLlmFamily, photos = true)
+    var familyName by rememberSaveable { mutableStateOf((defaultChoice?.family ?: state.preferredLlmFamily ?: ModelSlot.E2B).name) }
+    var acceleratorName by rememberSaveable { mutableStateOf(defaultChoice?.accelerator?.name ?: Accelerator.CPU.name) }
+    var defaultsApplied by rememberSaveable { mutableStateOf(false) }
+    var appliedPreference by rememberSaveable { mutableStateOf<String?>(null) }
     val size = batchSize.toIntOrNull()
     val validSize = size != null && size in 1..PhotoDemoState.MAX_BATCH_SIZE
     val photos = state.photos
@@ -119,12 +123,15 @@ private fun ObjectPhotosPage(state: LabState, controller: LabController, modifie
     }
     val modelReady = model != null && reason == null
     // Select an installed compatible combination on first entry or after model provisioning changes.
-    LaunchedEffect(state.models, state.tpuSupport, unfinished, state.unavailable) {
-        if (!unfinished && !state.unavailable && !available(family, accelerator)) {
-            val choice = listOf(ModelSlot.E2B, ModelSlot.E4B).flatMap { candidate ->
-                Accelerator.entries.map { candidate to it }
-            }.firstOrNull { (candidate, backend) -> available(candidate, backend) }
-            choice?.let { (candidate, backend) -> familyName = candidate.name; acceleratorName = backend.name }
+    val preferenceKey = state.preferredLlmFamily?.name ?: "AUTO"
+    LaunchedEffect(defaultChoice, preferenceKey, unfinished, state.unavailable) {
+        if (!unfinished && !state.unavailable && (!defaultsApplied || appliedPreference != preferenceKey || !available(family, accelerator))) {
+            defaultChoice?.let {
+                familyName = it.family.name
+                acceleratorName = it.accelerator.name
+                defaultsApplied = true
+                appliedPreference = preferenceKey
+            }
         }
     }
 

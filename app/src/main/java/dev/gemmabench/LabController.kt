@@ -10,6 +10,7 @@ import dev.gemmabench.runtime.LiteRtRuntime
 import dev.gemmabench.download.*
 import dev.gemmabench.photos.*
 import dev.gemmabench.people.*
+import dev.gemmabench.settings.*
 import com.google.gson.GsonBuilder
 import java.util.concurrent.Executors
 import kotlinx.coroutines.*
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 class GemmaBenchApplication : Application() {
+    val preferences by lazy { AppPreferencesStore(this) }
     val lab by lazy { LabController(this) }
 }
 
@@ -38,7 +40,9 @@ data class LabState(
     val photos: PhotoDemoState = PhotoDemoState(),
     val photoBatchProgress: PhotoBatchProgress? = null,
     val people: PeopleState = PeopleState(),
+    val preferredLlmFamily: ModelSlot? = null,
 ) {
+    val defaultLlm: LocalLlmChoice? get() = selectLocalLlm(models, tpuSupport, preferredLlmFamily)
     val downloadsActive: Boolean get() = downloads.any { it.active }
     val unavailable: Boolean get() = busy || downloadsActive
 }
@@ -60,6 +64,11 @@ class LabController(private val app: Application) {
     val state = mutable.asStateFlow()
 
     init {
+        scope.launch {
+            (app as GemmaBenchApplication).preferences.state.collect { preferences ->
+                mutable.update { it.copy(preferredLlmFamily = preferences.llmFamily) }
+            }
+        }
         scope.launch {
             try {
                 photoLibrary.clearPreviews()

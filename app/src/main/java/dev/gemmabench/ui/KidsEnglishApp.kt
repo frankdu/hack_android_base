@@ -1,6 +1,7 @@
 package dev.gemmabench.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -13,7 +14,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gemmabench.data.WordCategory
+import dev.gemmabench.tts.SpeechController
+import dev.gemmabench.tts.SpeechOption
+import dev.gemmabench.tts.SystemVoiceAvailability
+import dev.gemmabench.settings.AppPreferencesStore
+import dev.gemmabench.settings.settingsLabel
 
 sealed interface DictionaryState {
     data object Loading : DictionaryState
@@ -34,9 +43,12 @@ private val WordColors = lightColorScheme(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KidsEnglishApp(dictionary: DictionaryState, onOpenResearchLab: () -> Unit) {
+fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, preferences: AppPreferencesStore,
+                   onOpenResearchLab: () -> Unit) {
     var selectedCategory by rememberSaveable { mutableStateOf<Int?>(null) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    val speechState by speech.state.collectAsStateWithLifecycle()
+    LaunchedEffect(selectedCategory, settingsOpen) { speech.stop() }
     val categoryListState = rememberLazyListState()
     val wordListState = key(selectedCategory) { rememberLazyListState() }
     val categories = (dictionary as? DictionaryState.Ready)?.categories.orEmpty()
@@ -54,12 +66,11 @@ fun KidsEnglishApp(dictionary: DictionaryState, onOpenResearchLab: () -> Unit) {
                     title = {
                         Text(when {
                             settingsOpen -> "Settings"
-                            category != null -> category.name
-                            else -> "English words"
+                            else -> selectedCategory?.let { categories.getOrNull(it)?.name } ?: "English words"
                         }, maxLines = 2)
                     },
                     navigationIcon = {
-                        if (canGoBack) TextButton(onClick = goBack) { Text("Back") }
+                        if (settingsOpen || selectedCategory != null) TextButton(onClick = goBack) { Text("Back") }
                     },
                     actions = {
                         if (!settingsOpen) TextButton(onClick = { settingsOpen = true }) { Text("Settings") }
@@ -71,18 +82,7 @@ fun KidsEnglishApp(dictionary: DictionaryState, onOpenResearchLab: () -> Unit) {
             Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
                 val contentModifier = Modifier.widthIn(max = 720.dp).fillMaxSize()
                 when {
-                    settingsOpen -> Column(
-                        contentModifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Card(onClick = onOpenResearchLab, modifier = Modifier.fillMaxWidth()) {
-                            ListItem(
-                                headlineContent = { Text("Research Lab") },
-                                supportingContent = { Text("Models, benchmarks, and photo experiments") },
-                                trailingContent = { Text("›", style = MaterialTheme.typography.headlineSmall) },
-                            )
-                        }
-                    }
+                    settingsOpen -> AppSettingsPage(preferences, speech, contentModifier, onOpenResearchLab)
                     dictionary is DictionaryState.Loading -> Box(contentModifier, contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             CircularProgressIndicator()
@@ -100,16 +100,48 @@ fun KidsEnglishApp(dictionary: DictionaryState, onOpenResearchLab: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             item {
-                                Text("${category.items.size} words to explore", Modifier.padding(bottom = 8.dp),
-                                    style = MaterialTheme.typography.bodyLarge)
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("${category.items.size} words to explore", style = MaterialTheme.typography.bodyLarge)
+                                    Text("Tap a word to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}, or use the buttons to compare.",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    Text("Tap a voice to compare. Local models download once (Kokoro 92 MB · Kitten 24 MB); mobile data may be used.",
+                                        style = MaterialTheme.typography.bodyMedium)
+                                    if (speechState.activeWord != null) TextButton(onClick = speech::stop) { Text("Stop playback / download") }
+                                }
                             }
                             itemsIndexed(category.items) { index, word ->
                                 Surface(shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
-                                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                        Text("${index + 1}", color = MaterialTheme.colorScheme.primary,
-                                            style = MaterialTheme.typography.labelLarge)
-                                        Text(word, style = MaterialTheme.typography.headlineSmall)
+                                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                            speech.speakDefault(word)
+                                        }.semantics { contentDescription = "Play $word with default voice" },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                            Text("${index + 1}", color = MaterialTheme.colorScheme.primary,
+                                                style = MaterialTheme.typography.labelLarge)
+                                            Text(word, style = MaterialTheme.typography.headlineSmall)
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            SpeechOption.entries.forEach { option ->
+                                                val active = speechState.activeWord == word && speechState.activeOption == option
+                                                Column(Modifier.weight(1f)) {
+                                                    OutlinedButton(
+                                                        onClick = { if (active) speech.stop() else speech.speak(word, option) },
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+                                                        modifier = Modifier.fillMaxWidth().semantics {
+                                                            contentDescription = "${if (active) "Stop" else "Play"} $word with ${option.label}"
+                                                        },
+                                                    ) { Text(option.label, maxLines = 1) }
+                                                    Text(speechState.results[word to option] ?: when {
+                                                        option == SpeechOption.SYSTEM && speechState.systemVoice != SystemVoiceAvailability.AVAILABLE ->
+                                                            if (speechState.systemVoice == SystemVoiceAvailability.CHECKING) "Checking…" else "Unavailable"
+                                                        option !in speechState.ready -> "Download ${option.bytes / 1_000_000} MB"
+                                                        else -> "Ready"
+                                                    }, style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

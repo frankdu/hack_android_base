@@ -1,9 +1,34 @@
 package dev.gemmabench.data
 
+import com.google.gson.JsonParser
+import java.security.MessageDigest
 import org.junit.Assert.*
 import org.junit.Test
 
 class KidsEnglishDictionaryTest {
+    @Test fun speechAssetsCoverEveryWordAndMatchTheSeed() {
+        val loader = requireNotNull(javaClass.classLoader)
+        val source = requireNotNull(loader.getResourceAsStream(KidsEnglishDictionary.ASSET_NAME)).use { it.readBytes() }
+        val data = requireNotNull(loader.getResourceAsStream("dictionary-tokens.json")).bufferedReader().use {
+            JsonParser.parseReader(it).asJsonObject
+        }
+        val hash = MessageDigest.getInstance("SHA-256").digest(source).joinToString("") { "%02x".format(it) }
+        assertEquals("Run scripts/prepare_dictionary_tts.py after vocabulary edits", hash, data["dictionarySha256"].asString)
+        val expected = KidsEnglishDictionary.parse(source.toString(Charsets.UTF_8).reader()).flatMap { it.items }.toSet()
+        val words = data.getAsJsonObject("words")
+        assertEquals(expected, words.keySet())
+        val kokoroStyles = requireNotNull(loader.getResourceAsStream("kokoro-voice.bin")).use { it.readBytes().size / 1024 }
+        val kittenStyles = requireNotNull(loader.getResourceAsStream("kitten-voice.bin")).use { it.readBytes().size / 1024 }
+        for ((word, value) in words.entrySet()) {
+            val entry = value.asJsonObject
+            for ((model, vocabSize) in listOf("kokoro" to 178, "kitten" to 180)) {
+                val ids = entry.getAsJsonArray(model)
+                assertTrue("$model: $word", ids.size() in 1..510 && ids.all { it.asInt in 0 until vocabSize })
+            }
+            assertTrue("Kokoro style: $word", entry.getAsJsonArray("kokoro").size() < kokoroStyles)
+            assertTrue("Kitten style: $word", entry["kittenStyle"].asInt in 0 until kittenStyles)
+        }
+    }
     @Test fun parsesSectionsAndPreservesItemTextAndOrder() {
         val source = "\uFEFF  Category: animal  \r\n dog \r\nguinea pig\r\n\r\n\r\nCategory: past tense verbs\r\ngo - went"
         assertEquals(listOf(

@@ -1,0 +1,84 @@
+{
+  "environment": "ARM64 Android 16 emulator on macOS host; NOT Pixel phone timings",
+  "runtime": "ONNX Runtime Android 1.31.0 CPU; two intra-op threads; KleidiAI disabled for emulator compatibility",
+  "date": "2026-10-21",
+  "records": [
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kokoro",
+      "word": "dog",
+      "loadMs": 469,
+      "synthesisMs": 186,
+      "audioMs": 1325,
+      "rms": 0.060520621713770394
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kokoro",
+      "word": "dog",
+      "loadMs": 0,
+      "synthesisMs": 176,
+      "audioMs": 1325,
+      "rms": 0.060520621713770394
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kokoro",
+      "word": "butterfly",
+      "loadMs": 0,
+      "synthesisMs": 201,
+      "audioMs": 1525,
+      "rms": 0.0632672096372527
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kokoro",
+      "word": "ice cream",
+      "loadMs": 0,
+      "synthesisMs": 202,
+      "audioMs": 1550,
+      "rms": 0.06676786444055473
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kitten",
+      "word": "dog",
+      "loadMs": 357,
+      "synthesisMs": 93,
+      "audioMs": 1816,
+      "rms": 0.07067987073546153
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kitten",
+      "word": "dog",
+      "loadMs": 0,
+      "synthesisMs": 119,
+      "audioMs": 1816,
+      "rms": 0.06978588521306876
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kitten",
+      "word": "butterfly",
+      "loadMs": 0,
+      "synthesisMs": 89,
+      "audioMs": 2341,
+      "rms": 0.07747336114455287
+    },
+    {
+      "device": "sdk_gphone64_arm64",
+      "model": "Kitten",
+      "word": "ice cream",
+      "loadMs": 0,
+      "synthesisMs": 95,
+      "audioMs": 2316,
+      "rms": 0.05639849169070446
+    }
+  ],
+  "voices": {
+    "Kokoro": "Heart (af_heart)",
+    "Kitten": "Bella (expr-voice-2-f)"
+  },
+  "scope": "Historical measurements taken before the switch to Adam and Kiki; not measurements of the current voices."
+}

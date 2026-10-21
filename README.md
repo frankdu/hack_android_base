@@ -6,6 +6,10 @@ The app opens an English word browser for kids. Tap a category to see its items;
 
 The dictionary comes from `seed/kids_english_dictionary.txt`, packaged directly as an Android asset. `KidsEnglishDictionary` parses its blank-line-separated `Category: <name>` sections into Kotlin `WordCategory` objects, preserving the order and text of the items. Edit the seed file and rebuild to update the vocabulary.
 
+Each word has **Android**, **Kokoro**, and **Kitten** speech buttons. Android uses an installed offline English voice; the other two download commercially usable Apache-2.0 models on first tap (92 MB / 24 MB), then synthesize offline. Kokoro uses **Adam (`am_adam`)** and KittenTTS uses **Kiki (`expr-voice-5-f`)**. A new tap replaces current playback. See [TTS research, licensing, and comparison details](docs/TTS_OPTIONS.md). After editing vocabulary, regenerate the pronunciation assets as described there.
+
+**Settings → Text-to-speech Engine** saves System, Kitten TTS, or Kokoro TTS as the preferred voice engine. Tap a word to use it, with automatic fallback when unavailable. **Default Local LLM** saves E2B/E4B preference and initializes Research Lab with the best installed compatible TPU/GPU/CPU configuration. With no saved preference, selection prioritizes E2B TPU, E4B TPU (currently unavailable), E2B GPU, E4B GPU, E2B CPU, then E4B CPU. See [application defaults and fallback behavior](docs/APP_SETTINGS.md).
+
 ## Build and install
 
 Requirements: JDK 17+, Android SDK platform 37/build tools 36, and an **ARM64 physical Android phone running Android 12/API 31 or later**. A recent Pixel with current firmware is recommended. Hardware inference performance must be measured on a real phone.

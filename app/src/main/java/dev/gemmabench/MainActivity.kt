@@ -10,13 +10,17 @@ import androidx.compose.runtime.produceState
 import dev.gemmabench.data.KidsEnglishDictionary
 import dev.gemmabench.ui.DictionaryState
 import dev.gemmabench.ui.KidsEnglishApp
+import dev.gemmabench.tts.SpeechController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
+    private lateinit var speech: SpeechController
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        speech = SpeechController(this)
         enableEdgeToEdge()
         setContent {
             val dictionary by produceState<DictionaryState>(DictionaryState.Loading) {
@@ -33,9 +37,19 @@ class MainActivity : ComponentActivity() {
                     DictionaryState.Error
                 }
             }
-            KidsEnglishApp(dictionary) {
+            KidsEnglishApp(dictionary, speech, (application as GemmaBenchApplication).preferences) {
                 startActivity(Intent(this, ResearchLabActivity::class.java))
             }
         }
+    }
+
+    override fun onStop() {
+        speech.stop()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        speech.close()
+        super.onDestroy()
     }
 }

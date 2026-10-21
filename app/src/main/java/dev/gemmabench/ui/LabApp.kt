@@ -219,9 +219,12 @@ private fun ModelCard(slot: ModelSlot, state: LabState, controller: LabControlle
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RunPage(state: LabState, controller: LabController, playground: Boolean) {
-    var acceleratorName by rememberSaveable(playground) { mutableStateOf(Accelerator.CPU.name) }
+    val defaultChoice = state.defaultLlm
+    var acceleratorName by rememberSaveable(playground) { mutableStateOf(defaultChoice?.accelerator?.name ?: Accelerator.CPU.name) }
     val accelerator = Accelerator.valueOf(acceleratorName)
-    var selectedNames by rememberSaveable(playground) { mutableStateOf(ModelSlot.entries.map { it.name }) }
+    var selectedNames by rememberSaveable(playground) { mutableStateOf(listOf((defaultChoice?.slot ?: state.preferredLlmFamily ?: ModelSlot.E2B).name)) }
+    var defaultsApplied by rememberSaveable(playground) { mutableStateOf(false) }
+    var appliedPreference by rememberSaveable(playground) { mutableStateOf<String?>(null) }
     var inputTokens by rememberSaveable(playground) { mutableStateOf("256") }
     var outputTokens by rememberSaveable(playground) { mutableStateOf(if (playground) "128" else "256") }
     var contextTokens by rememberSaveable(playground) { mutableStateOf("2048") }
@@ -232,6 +235,19 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
     var prompt by rememberSaveable(playground) { mutableStateOf(PromptPresets.explain) }
     var error by rememberSaveable(playground) { mutableStateOf<String?>(null) }
     var advanced by rememberSaveable(playground) { mutableStateOf(false) }
+    val preferenceKey = state.preferredLlmFamily?.name ?: "AUTO"
+    LaunchedEffect(defaultChoice, preferenceKey, state.busy) {
+        if (!state.busy && defaultChoice != null && (!defaultsApplied || appliedPreference != preferenceKey)) {
+            acceleratorName = defaultChoice.accelerator.name
+            selectedNames = listOf(defaultChoice.slot.name)
+            if (playground) state.models.firstOrNull { it.slot == defaultChoice.slot }?.metadata?.let { meta ->
+                if (meta.maxContextTokens > 0) contextTokens = (if (meta.dynamicContext)
+                    minOf(contextTokens.toIntOrNull() ?: 2048, meta.maxContextTokens) else meta.maxContextTokens).toString()
+            }
+            defaultsApplied = true
+            appliedPreference = preferenceKey
+        }
+    }
 
     Text(if (playground) "Try a real task with a warm engine and a fresh conversation for each request. Select both models to compare the same prompt." else "Run a repeatable token workload. The native harness pads or truncates input to the requested count; generated text is not a quality test.")
     Text("Accelerator", style = MaterialTheme.typography.titleMedium)
@@ -241,6 +257,8 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
                 selected = backend == accelerator,
                 onClick = {
                     acceleratorName = backend.name
+                    defaultsApplied = true
+                    appliedPreference = preferenceKey
                     if (backend != Accelerator.GPU) mtp = false
                     if (playground && backend == Accelerator.TPU) {
                         state.models.firstOrNull { it.slot == state.tpuSupport.slot }?.metadata?.let { meta ->
@@ -266,6 +284,8 @@ private fun RunPage(state: LabState, controller: LabController, playground: Bool
         val ready = slot in readySlots
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = slot.name in selectedNames, enabled = ready && !state.unavailable, onCheckedChange = { checked ->
+                defaultsApplied = true
+                appliedPreference = preferenceKey
                 selectedNames = if (checked) selectedNames + slot.name else selectedNames - slot.name
             })
             Column {
