@@ -41,6 +41,19 @@ import kotlin.math.roundToInt
 
 @Composable
 fun PhotosPage(state: LabState, controller: LabController, modifier: Modifier = Modifier) {
+    var people by rememberSaveable { mutableStateOf(false) }
+    Column(modifier) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !people, onClick = { people = false }, label = { Text("Find objects") })
+            FilterChip(selected = people, onClick = { people = true }, label = { Text("Find people") })
+        }
+        if (people) PeoplePage(state, controller, Modifier.weight(1f))
+        else ObjectPhotosPage(state, controller, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ObjectPhotosPage(state: LabState, controller: LabController, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var access by remember { mutableStateOf(PhotoPermissions.access(context)) }
     var previousAccess by remember { mutableStateOf(state.photos.accessScope ?: access) }

@@ -9,6 +9,7 @@ import dev.gemmabench.data.LabStorage
 import dev.gemmabench.runtime.LiteRtRuntime
 import dev.gemmabench.download.*
 import dev.gemmabench.photos.*
+import dev.gemmabench.people.*
 import com.google.gson.GsonBuilder
 import java.util.concurrent.Executors
 import kotlinx.coroutines.*
@@ -36,6 +37,7 @@ data class LabState(
     val downloads: List<ModelDownload> = emptyList(),
     val photos: PhotoDemoState = PhotoDemoState(),
     val photoBatchProgress: PhotoBatchProgress? = null,
+    val people: PeopleState = PeopleState(),
 ) {
     val downloadsActive: Boolean get() = downloads.any { it.active }
     val unavailable: Boolean get() = busy || downloadsActive
@@ -50,6 +52,9 @@ class LabController(private val app: Application) {
     private val runtime = LiteRtRuntime(app, storage::file)
     private val photoLibrary = PhotoLibrary(app)
     private val photoCache by lazy { PhotoAnalysisCache(PhotoCacheDatabase.getInstance(app).photoAnalysis()) }
+    private val peopleRepository by lazy { PeopleRepository(PhotoCacheDatabase.getInstance(app)) }
+    private val faceEngine by lazy { FaceEngine(app) }
+    private val peopleRefreshGeneration = java.util.concurrent.atomic.AtomicInteger()
     private val runner = BenchmarkRunner(runtime, storage::device, storage::snapshot)
     private val mutable = MutableStateFlow(LabState(busy = true))
     val state = mutable.asStateFlow()
@@ -73,7 +78,7 @@ class LabController(private val app: Application) {
         }
     }
 
-    private fun begin(message: String, inference: Boolean = false): Boolean {
+    @Synchronized private fun begin(message: String, inference: Boolean = false): Boolean {
         if (mutable.value.unavailable) return false
         mutable.update { it.copy(
             busy = true, runningInference = inference, stopRequested = false,
@@ -339,6 +344,95 @@ class LabController(private val app: Application) {
                 finish()
             }
         }
+    }
+
+    private fun accessiblePeoplePhotos(): Map<String, String> = if (PhotoPermissions.access(app) == PhotoAccess.DENIED) emptyMap()
+        else photoLibrary.accessiblePhotos().associate { it.uri to it.sourceRevision }
+
+    private suspend fun refreshPeopleGallery() {
+        val (groups, unassigned) = peopleRepository.gallery(accessiblePeoplePhotos())
+        mutable.update { it.copy(people = it.people.copy(groups = groups, unassigned = unassigned,
+            calibrated = faceEngine.policy().validated, accessScope = PhotoPermissions.access(app), refreshing = false)) }
+    }
+
+    /** Hide stale permission-scoped content immediately; refresh on the serialized worker. */
+    fun refreshPeople() {
+        val generation = peopleRefreshGeneration.incrementAndGet()
+        mutable.update { it.copy(people = it.people.copy(groups = emptyList(), unassigned = emptyList(), refreshing = true)) }
+        scope.launch {
+            while (state.value.unavailable) { delay(100); if (peopleRefreshGeneration.get() != generation) return@launch }
+            if (peopleRefreshGeneration.get() != generation || !begin("Refreshing people…")) return@launch
+            try {
+                mutable.update { it.copy(people = PeopleState(refreshing = true)) }
+                refreshPeopleGallery()
+                mutable.update { it.copy(progress = "People gallery refreshed.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    fun findPeople(batchSize: Int, resume: Boolean = false) {
+        if (!begin("Preparing people batch…", inference = true)) return
+        mutable.update { it.copy(photoBatchProgress = null) }
+        scope.launch {
+            try {
+                require(batchSize in 1..PhotoDemoState.MAX_BATCH_SIZE)
+                check(PhotoPermissions.access(app) != PhotoAccess.DENIED) { "Grant photo access first." }
+                runtime.unload()
+                mutable.update { it.copy(engineRetained = false) }
+                val accessible = accessiblePeoplePhotos()
+                if (!resume) {
+                    val page = photoLibrary.nextBatch(state.value.people.beforeId, batchSize)
+                    mutable.update { it.copy(people = it.people.copy(results = page.photos.map(::PeopleBatchResult),
+                        beforeId = page.photos.lastOrNull()?.id ?: it.people.beforeId, hasMore = page.hasMore,
+                        batchNumber = it.people.batchNumber + 1)) }
+                }
+                val policy = faceEngine.policy()
+                val batch = state.value.people.results
+                for ((index, result) in batch.withIndex()) {
+                    if (state.value.stopRequested) break
+                    if (result.status == "COMPLETED") continue
+                    mutable.update { it.copy(progress = "Finding people · photo ${index + 1}/${batch.size}") }
+                    val updated = try {
+                        if (peopleRepository.cached(result.photo)) {
+                            PeopleBatchResult(result.photo, "COMPLETED", PhotoCacheDatabase.getInstance(app).people().facesForPhoto(result.photo.uri).size, cached = true)
+                        } else {
+                            val faces = faceEngine.analyze(result.photo.uri)
+                            if (state.value.stopRequested) break
+                            peopleRepository.save(result.photo, faces, accessible, policy)
+                            PeopleBatchResult(result.photo, "COMPLETED", faces.size)
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        val message = e.message ?: "Face analysis failed."
+                        peopleRepository.failed(result.photo, message)
+                        PeopleBatchResult(result.photo, "FAILED", error = message)
+                    }
+                    mutable.update { it.copy(people = it.people.copy(results = it.people.results.mapIndexed { i, r -> if (i == index) updated else r })) }
+                }
+                refreshPeopleGallery()
+                mutable.update { it.copy(progress = if (it.stopRequested) "People scan stopped. Resume this batch to continue."
+                    else "People batch finished · ${it.people.results.count { r -> r.status == "COMPLETED" }}/${batch.size} photos processed.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    private fun editPeople(message: String, action: suspend PeopleRepository.() -> Unit) {
+        if (!begin(message)) return
+        scope.launch {
+            try { peopleRepository.action(); refreshPeopleGallery(); mutable.update { it.copy(progress = message) } }
+            catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    fun renamePerson(id: String, name: String) = editPeople("Person name saved.") { rename(id, name) }
+    fun mergePeople(source: String, target: String) = editPeople("Person groups merged.") { merge(source, target) }
+    fun movePersonFace(faceId: String, target: String?) = editPeople("Face moved.") { move(faceId, target) }
+    fun clearPeople() = editPeople("Person data cleared.") {
+        clear()
+        mutable.update { it.copy(people = PeopleState()) }
     }
 
     private fun updatePhoto(index: Int, transform: (PhotoResult) -> PhotoResult) {

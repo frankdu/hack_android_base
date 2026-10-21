@@ -10,6 +10,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import dev.gemmabench.people.*
 
 /** Durable analysis data only: preview files are disposable and are never stored here. */
 @Entity(tableName = "photo_analysis", indices = [Index("photoUri")])
@@ -56,9 +57,10 @@ interface PhotoAnalysisDao {
     suspend fun upsert(result: CachedPhotoAnalysis)
 }
 
-@Database(entities = [CachedPhotoAnalysis::class], version = 1, exportSchema = true)
+@Database(entities = [CachedPhotoAnalysis::class, Person::class, PeoplePhoto::class, PersonFace::class, PersonBlock::class], version = 2, exportSchema = true)
 abstract class PhotoCacheDatabase : RoomDatabase() {
     abstract fun photoAnalysis(): PhotoAnalysisDao
+    abstract fun people(): PeopleDao
 
     companion object {
         @Volatile private var instance: PhotoCacheDatabase? = null
@@ -66,7 +68,7 @@ abstract class PhotoCacheDatabase : RoomDatabase() {
         fun getInstance(context: Context): PhotoCacheDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext, PhotoCacheDatabase::class.java, "photo-analysis.db",
-            ).build().also { instance = it }
+            ).addMigrations(PEOPLE_MIGRATION_1_2).build().also { instance = it }
         }
     }
 }

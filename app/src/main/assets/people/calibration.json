@@ -1,0 +1,45 @@
+{
+  "pipelineVersion": "yunet2023-sface2021-upright2048-min48-score09-v1",
+  "detectorSha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+  "recognizerSha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+  "threshold": 0.39,
+  "margin": 0.1,
+  "validated": true,
+  "dataset": "LFW funneled, deterministic seed 42, 40 identities, 8 photos each; identity-disjoint splits",
+  "manifestSha256": "cfa04e52cd9c8ff5f5a6e053fc6f9106183d3d8c92856364990a03fad790edc4",
+  "photos": 320,
+  "detectedPhotos": 317,
+  "usablePhotos": 317,
+  "calibration": {
+    "correct": 136,
+    "falseMerges": 0,
+    "negativeComparisons": 2603,
+    "queries": 137,
+    "recall": 0.9927007299270073,
+    "rejected": 1
+  },
+  "holdout": {
+    "correct": 131,
+    "falseMerges": 0,
+    "negativeComparisons": 2660,
+    "queries": 140,
+    "recall": 0.9357142857142857,
+    "rejected": 9
+  },
+  "holdoutIncrementalGrouping": {
+    "falseMerges": 0,
+    "falsePairs": 0,
+    "groups": 23,
+    "photos": 160,
+    "precision": 1.0,
+    "recall": 0.9571428571428572,
+    "recoveredPairs": 536,
+    "samePersonPairs": 560
+  },
+  "medianMs": 60.011953,
+  "p95Ms": 110.304375,
+  "peakNativeHeapBytes": 145659760,
+  "peakProcessPssBytes": 213145600,
+  "device": "Pixel 10 Pro Fold",
+  "limits": "Small public-figure fixture; not a demographic or personal-album accuracy guarantee. Native allocated heap is not total process memory."
+}

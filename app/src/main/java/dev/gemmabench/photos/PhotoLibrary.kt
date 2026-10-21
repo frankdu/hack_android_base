@@ -55,6 +55,20 @@ class PhotoLibrary(private val context: Context) {
     private fun Cursor.isScreenshot() = PhotoEligibility.isScreenshot(getString(1), getString(3), getString(4))
     private fun Cursor.isSupported() = getString(2)?.let(ImageDecoder::isMimeTypeSupported) ?: true
 
+    /** Current permission-scoped inventory, also used to hide revoked/deleted People photos. */
+    fun accessiblePhotos(): List<DevicePhoto> {
+        val photos = mutableListOf<DevicePhoto>()
+        requireNotNull(context.contentResolver.query(collection, projection, null, null, null)).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.isScreenshot() || !cursor.isSupported()) continue
+                val id = cursor.getLong(0)
+                photos += DevicePhoto(id, ContentUris.withAppendedId(collection, id).toString(), cursor.getString(1) ?: "Photo $id",
+                    cursor.getString(2), "${cursor.getLong(5)}:${cursor.getLong(6)}:${cursor.getLong(7)}")
+            }
+        }
+        return photos
+    }
+
     /** Counts accessible, supported non-screenshot images without decoding image data. Call off the UI thread. */
     fun countEligiblePhotos(): Long {
         var count = 0L

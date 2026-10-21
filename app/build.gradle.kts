@@ -47,6 +47,7 @@ dependencies {
         runtimeOnly("com.google.ai.edge.litert:litert-npu-runtime-google-tensor:2.3.0")
     }
     implementation("com.google.code.gson:gson:2.13.2")
+    implementation("org.opencv:opencv:4.13.0")
     implementation("androidx.room:room-runtime:2.8.5")
     ksp("androidx.room:room-compiler:2.8.5")
     testImplementation("junit:junit:4.13.2")
