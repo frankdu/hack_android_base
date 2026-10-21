@@ -23,7 +23,7 @@ class ModelDownloadInstrumentedTest {
             InstrumentationRegistry.getArguments().getString("downloadModels") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext.applicationContext as GemmaBenchApplication
-        ActivityScenario.launch(MainActivity::class.java).use {
+        ActivityScenario.launch(ResearchLabActivity::class.java).use {
             val lab = app.lab
             withTimeout(15_000) { while (lab.state.value.busy || lab.state.value.device == null) delay(100) }
             // TPU provisioning is separately opt-in and only targets this device's supported artifact.

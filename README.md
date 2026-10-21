@@ -2,7 +2,9 @@
 
 A native Android starting point for **Gemma 4 E2B and E4B through LiteRT-LM**. It includes one-tap model downloads, a fixed-token benchmark, a streaming prompt playground, and local JSON/CSV results. Network access provisions models; inference runs offline.
 
-The lab is the initial app surface. Its inference adapter, benchmark runner and UI are separate so this feature can move behind internal developer settings later.
+The app opens an English word browser for kids. Tap a category to see its items; use Back to return to the categories. **Settings → Research Lab** opens the original model and benchmarking tools in `ResearchLabActivity`.
+
+The dictionary comes from `seed/kids_english_dictionary.txt`, packaged directly as an Android asset. `KidsEnglishDictionary` parses its blank-line-separated `Category: <name>` sections into Kotlin `WordCategory` objects, preserving the order and text of the items. Edit the seed file and rebuild to update the vocabulary.
 
 ## Build and install
 
@@ -18,7 +20,7 @@ Set `ANDROID_HOME` to your SDK, or create an ignored `local.properties` with `sd
 
 ## Download the models
 
-Open **Models** and tap **Download E2B** or **Download E4B**. Downloads come directly from the official LiteRT Community repositories on Hugging Face. No browser, file picker, Hugging Face login or access token is needed for these public models.
+Open **Settings → Research Lab → Models** and tap **Download E2B** or **Download E4B**. Downloads come directly from the official LiteRT Community repositories on Hugging Face. No browser, file picker, Hugging Face login or access token is needed for these public models.
 
 - E2B: **2,588,147,712 bytes** (2.59 GB).
 - E4B: **3,659,530,240 bytes** (3.66 GB).

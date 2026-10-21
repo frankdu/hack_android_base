@@ -21,6 +21,9 @@ android {
         buildConfigField("String", "LITERT_LM_VERSION", "\"0.18.0\"")
     }
     buildFeatures { compose = true; buildConfig = true }
+    // Package the source dictionary directly so it remains the single source of truth.
+    sourceSets["main"].assets.directories += rootProject.file("seed").path
+    sourceSets["test"].resources.directories += rootProject.file("seed").path
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

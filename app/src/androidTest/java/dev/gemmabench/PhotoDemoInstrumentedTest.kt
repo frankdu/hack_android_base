@@ -210,7 +210,7 @@ class PhotoDemoInstrumentedTest {
     @Test fun gemmaVisionProducesObjectBoxes(): Unit = runBlocking {
         assumeTrue("Pass -e photoInference true for the real Gemma vision smoke test.",
             InstrumentationRegistry.getArguments().getString("photoInference") == "true")
-        ActivityScenario.launch(MainActivity::class.java).use {
+        ActivityScenario.launch(ResearchLabActivity::class.java).use {
             val app = context.applicationContext as GemmaBenchApplication
             withTimeout(15_000) { while (app.lab.state.value.busy) kotlinx.coroutines.delay(100) }
             val slot = ModelSlot.valueOf(InstrumentationRegistry.getArguments().getString("photoModel") ?: "E2B")

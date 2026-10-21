@@ -37,7 +37,7 @@ class PeopleBatchInstrumentedTest {
                 finally { bitmap.recycle() }
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
             }
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            ActivityScenario.launch(ResearchLabActivity::class.java).use { scenario ->
                 val lab = (context.applicationContext as GemmaBenchApplication).lab
                 suspend fun idle() = withTimeout(30_000) { while (lab.state.value.unavailable || lab.state.value.people.refreshing) delay(20) }
                 idle()
