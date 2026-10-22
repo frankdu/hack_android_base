@@ -26,7 +26,7 @@ Both local options run through [ONNX Runtime 1.31.0's Android Java/Kotlin API](h
 
 ## Implementation and behavior
 
-Every word has **Android**, **Kokoro**, and **Kitten** buttons. Tap a local model's button to download it and immediately speak the selected word. Progress appears under that button. Downloads can use mobile data, as stated on the word page; Stop cancels playback/download work. Transfers are foreground/session-owned and restart from the beginning after cancellation. No model is fetched just by opening a category.
+Every word has **Android**, **Kokoro**, and **Kitten** buttons. Tap a local model's button to download it and immediately speak the selected word. Progress appears under that button. Downloads can use mobile data, as stated on the word page. While speech is active, the title bar shows a Stop icon immediately before the Settings gear; it cancels playback/download work and disappears when the request ends. Playback controls do not insert an extra row into the word list. Transfers are foreground/session-owned and restart from the beginning after cancellation. No model is fetched just by opening a category.
 
 Settings also provides a persistent **Text-to-speech Engine** selector. Tap the word itself to use the saved/default engine, with System → Kitten → Kokoro fallback when unavailable or failed. The three comparison buttons continue to use only their named engine. See [application defaults](APP_SETTINGS.md) for availability and preference rules.
 

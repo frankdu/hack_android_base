@@ -12,12 +12,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gemmabench.data.WordCategory
+import dev.gemmabench.R
 import dev.gemmabench.tts.SpeechController
 import dev.gemmabench.tts.SpeechOption
 import dev.gemmabench.tts.SystemVoiceAvailability
@@ -70,10 +72,23 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                         }, maxLines = 2)
                     },
                     navigationIcon = {
-                        if (settingsOpen || selectedCategory != null) TextButton(onClick = goBack) { Text("Back") }
+                        if (settingsOpen || selectedCategory != null) {
+                            IconButton(onClick = goBack) {
+                                Icon(painterResource(R.drawable.ic_arrow_back_24), contentDescription = "Back")
+                            }
+                        }
                     },
                     actions = {
-                        if (!settingsOpen) TextButton(onClick = { settingsOpen = true }) { Text("Settings") }
+                        if (!settingsOpen) {
+                            if (speechState.activeWord != null) {
+                                IconButton(onClick = speech::stop) {
+                                    Icon(painterResource(R.drawable.ic_stop_24), contentDescription = "Stop playback")
+                                }
+                            }
+                            IconButton(onClick = { settingsOpen = true }) {
+                                Icon(painterResource(R.drawable.ic_settings_24), contentDescription = "Settings")
+                            }
+                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = WordColors.background),
                 )
@@ -106,7 +121,6 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                                         style = MaterialTheme.typography.bodyMedium)
                                     Text("Tap a voice to compare. Local models download once (Kokoro 92 MB · Kitten 24 MB); mobile data may be used.",
                                         style = MaterialTheme.typography.bodyMedium)
-                                    if (speechState.activeWord != null) TextButton(onClick = speech::stop) { Text("Stop playback / download") }
                                 }
                             }
                             itemsIndexed(category.items) { index, word ->

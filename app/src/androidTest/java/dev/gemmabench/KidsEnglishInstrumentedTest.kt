@@ -100,7 +100,7 @@ class KidsEnglishInstrumentedTest {
             instrumentation.runOnMainSync { app.preferences.reset() }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitText("100 categories")
-                clickText("Settings")
+                clickDescription("Settings")
                 awaitText("Text-to-speech Engine")
                 clickDescription("Text-to-speech Engine: Kokoro TTS")
                 assertEquals(SpeechOption.KOKORO, app.preferences.state.value.speechEngine)
@@ -111,12 +111,12 @@ class KidsEnglishInstrumentedTest {
                 val reloaded = AppPreferencesStore(instrumentation.targetContext).state.value
                 assertEquals(SpeechOption.KOKORO, reloaded.speechEngine)
                 assertEquals(ModelSlot.E4B, reloaded.llmFamily)
-                clickText("Back")
+                clickDescription("Back")
                 clickText("animal")
                 awaitText("Tap a word to hear Kokoro TTS")
                 awaitText("animal")
-                clickText("Back")
-                clickText("Settings")
+                clickDescription("Back")
+                clickDescription("Settings")
                 val monitor = instrumentation.addMonitor(ResearchLabActivity::class.java.name, null, false)
                 try {
                     clickText("Research Lab")
@@ -168,7 +168,7 @@ class KidsEnglishInstrumentedTest {
             awaitText("100 categories")
             clickText("bird")
             awaitText("robin")
-            clickText("Back")
+            clickDescription("Back")
             awaitText("100 categories")
         }
     }
@@ -176,7 +176,7 @@ class KidsEnglishInstrumentedTest {
     @Test fun opensResearchLabFromSettingsAndReturnsToDictionary() {
         ActivityScenario.launch(MainActivity::class.java).use {
             awaitText("100 categories")
-            clickText("Settings")
+            clickDescription("Settings")
             val monitor = instrumentation.addMonitor(ResearchLabActivity::class.java.name, null, false)
             try {
                 clickText("Research Lab")
@@ -185,7 +185,7 @@ class KidsEnglishInstrumentedTest {
                 awaitText("GEMMA / DEVICE LAB")
                 instrumentation.runOnMainSync { (lab as ResearchLabActivity).onBackPressedDispatcher.onBackPressed() }
                 awaitText("Research Lab")
-                clickText("Back")
+                clickDescription("Back")
                 awaitText("100 categories")
             } finally {
                 instrumentation.removeMonitor(monitor)
