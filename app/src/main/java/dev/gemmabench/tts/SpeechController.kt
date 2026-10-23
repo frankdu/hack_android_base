@@ -31,6 +31,8 @@ data class SpeechState(
     val systemVoice: SystemVoiceAvailability = SystemVoiceAvailability.CHECKING,
     val systemVoiceDetail: String = "Checking for an offline English voice…",
     val failedOptions: Set<SpeechOption> = emptySet(),
+    val lastError: Pair<String, String>? = null,
+    val isSpeaking: Boolean = false,
 ) {
     val unavailableOptions: Set<SpeechOption> get() = failedOptions +
         (if (systemVoice == SystemVoiceAvailability.UNAVAILABLE) setOf(SpeechOption.SYSTEM) else emptySet())
@@ -49,7 +51,7 @@ class SpeechController(context: Context,
         it != SpeechOption.SYSTEM && it.file(this.context).length() == it.bytes
     }.toSet(), preferredOption = preferences.state.value.speechEngine))
     val state = mutableState.asStateFlow()
-    private var job: Job? = null
+    private var job: Deferred<Unit>? = null
     private var request = 0L
     private var tts: TextToSpeech? = null
     private var ttsReady: CompletableDeferred<Int>? = null
@@ -100,23 +102,31 @@ class SpeechController(context: Context,
             failedOptions = it.failedOptions + SpeechOption.SYSTEM) }
     }
 
-    fun speak(word: String, option: SpeechOption) = start(word, option)
-    fun speakDefault(word: String) = start(word, null)
+    fun speak(word: String, option: SpeechOption) { start(word, option) }
+    fun speakDefault(word: String) { start(word, null) }
 
-    private fun start(word: String, explicit: SpeechOption?) {
+    /** Awaitable speech output used by the agent; never record until this completes. */
+    suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) {
+        val task = start(text, null, onRange)
+        try { task.await() } finally { if (job === task) stop() }
+    }
+
+    private fun start(word: String, explicit: SpeechOption?, onRange: ((Int, Int) -> Unit)? = null): Deferred<Unit> {
         stop()
         val id = ++request
         mutableState.update { it.copy(activeWord = word, activeOption = explicit ?: it.defaultOption,
+            lastError = null,
             failedOptions = if (explicit == null) it.failedOptions else it.failedOptions - explicit) }
-        job = scope.launch {
+        val task = scope.async {
             try {
                 if (explicit == null && preferences.state.value.speechEngine in listOf(null, SpeechOption.SYSTEM)) systemProbe?.join()
                 val options = explicit?.let(::listOf) ?: speechCandidates(
                     preferences.state.value.speechEngine, mutableState.value.unavailableOptions)
                 if (options.isEmpty()) {
                     mutableState.update { it.copy(results = it.results + ((word to SpeechOption.SYSTEM) to
-                        "No voice available. Retry a comparison button or check Settings.")) }
+                        "No voice available. Check Settings.")) }
                 }
+                var failure: Exception? = null
                 for (option in options) {
                     ensureActive()
                     mutableState.update { it.copy(activeOption = option) }
@@ -124,37 +134,47 @@ class SpeechController(context: Context,
                         if (id == request) mutableState.update { it.copy(results = it.results + ((word to option) to message)) }
                     }
                     try {
-                        performSpeech(word, option, id, ::report)
+                        performSpeech(word, option, id, ::report, onRange)
                         mutableState.update { it.copy(failedOptions = it.failedOptions - option) }
-                        return@launch
-                    } catch (_: TimeoutCancellationException) {
+                        return@async
+                    } catch (error: TimeoutCancellationException) {
+                        mutableState.update { it.copy(isSpeaking = false) }
+                        failure = error
                         if (option == SpeechOption.SYSTEM) systemUnavailable("System voice timed out.")
                         report("Speech timed out. Tap to retry.")
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {
+                        mutableState.update { it.copy(isSpeaking = false) }
+                        failure = error
                         if (error is SpeechOutputUnavailable) {
                             report(error.message ?: "Audio is busy. Try again.")
-                            return@launch
+                            mutableState.update { it.copy(lastError = word to error.message.orEmpty()) }
+                            throw error
                         }
                         if (option == SpeechOption.SYSTEM) systemUnavailable(error.message ?: "System voice failed.")
                         report(error.message ?: "Playback failed. Tap to retry.")
                     }
                     mutableState.update { it.copy(failedOptions = it.failedOptions + option) }
                 }
+                val message = failure?.message ?: "No voice available. Check Settings."
+                mutableState.update { it.copy(lastError = word to message) }
+                throw IllegalStateException(message, failure)
             } finally {
                 if (id == request) {
                     manager.abandonAudioFocusRequest(focus)
-                    mutableState.value = mutableState.value.copy(activeWord = null, activeOption = null)
+                    mutableState.value = mutableState.value.copy(activeWord = null, activeOption = null, isSpeaking = false)
                 }
             }
         }
+        job = task
+        return task
     }
 
-    private suspend fun performSpeech(word: String, option: SpeechOption, id: Long, report: (String) -> Unit) {
+    private suspend fun performSpeech(word: String, option: SpeechOption, id: Long, report: (String) -> Unit, onRange: ((Int, Int) -> Unit)?) {
         if (option == SpeechOption.SYSTEM) {
             systemProbe?.join()
             report("Opening voice…")
-            speakSystem(word, id, report)
+            speakSystem(word, id, report, onRange)
             return
         }
         report(if (option in mutableState.value.ready) "Preparing…" else "Downloading…")
@@ -169,7 +189,7 @@ class SpeechController(context: Context,
             }
             currentCoroutineContext().ensureActive()
             report("${audio.generationMs} ms synthesis" + (if (audio.loadMs > 10) " · ${audio.loadMs} ms load" else ""))
-            play(wav)
+            play(wav, audio.words, onRange)
         } finally { wav.delete() }
     }
 
@@ -205,17 +225,36 @@ class SpeechController(context: Context,
         return engine
     }
 
-    private suspend fun speakSystem(word: String, id: Long, report: (String) -> Unit) {
+    private suspend fun speakSystem(word: String, id: Long, report: (String) -> Unit, onRange: ((Int, Int) -> Unit)?) {
         val engine = systemEngine()
         val completion = CompletableDeferred<Unit>()
         val started = CompletableDeferred<Unit>()
         val start = SystemClock.elapsedRealtime()
+        var hasRanges = false
+        var fallback: Job? = null
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 if (utteranceId != id.toString()) return
                 started.complete(Unit)
                 val elapsed = SystemClock.elapsedRealtime() - start
-                scope.launch { if (id == request) report("$elapsed ms to speech") }
+                scope.launch {
+                    if (id != request) return@launch
+                    mutableState.update { it.copy(isSpeaking = true) }
+                    if (id == request) report("$elapsed ms to speech")
+                    // Some installed engines omit range callbacks. Use a timed fallback until one arrives.
+                    fallback = scope.launch {
+                        for (timing in estimatedWordTimes(word, wordRanges(word).size * 400L)) {
+                            delay((timing.startMs - (SystemClock.elapsedRealtime() - start - elapsed)).coerceAtLeast(0))
+                            if (id == request && !hasRanges) onRange?.invoke(timing.start, timing.end)
+                        }
+                    }
+                }
+            }
+            override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                if (utteranceId != id.toString()) return
+                scope.launch {
+                    if (id == request) { hasRanges = true; onRange?.invoke(start, end) }
+                }
             }
             override fun onDone(utteranceId: String?) {
                 if (utteranceId == id.toString()) { started.complete(Unit); completion.complete(Unit) }
@@ -240,8 +279,8 @@ class SpeechController(context: Context,
                 "Android speech could not start."
             }
             withTimeout(8_000) { started.await() }
-            withTimeout(30_000) { completion.await() }
-        } finally { engine.stop() }
+            withTimeout(120_000) { completion.await() }
+        } finally { fallback?.cancel(); if (id == request) engine.stop() }
     }
 
     private fun requestFocus() {
@@ -252,9 +291,10 @@ class SpeechController(context: Context,
 
     private class SpeechOutputUnavailable : IllegalStateException("Audio is busy. Try again after the current call or playback.")
 
-    private suspend fun play(wav: File) {
+    private suspend fun play(wav: File, words: List<SpokenWord>, onRange: ((Int, Int) -> Unit)?) {
         requestFocus()
         val player = MediaPlayer()
+        var highlighter: Job? = null
         try {
             suspendCancellableCoroutine { continuation ->
                 player.setAudioAttributes(attributes)
@@ -264,10 +304,26 @@ class SpeechController(context: Context,
                     if (continuation.isActive) continuation.resumeWithException(IllegalStateException("Audio playback error $what/$extra"))
                     true
                 }
-                player.setOnPreparedListener { if (continuation.isActive) it.start() }
+                player.setOnPreparedListener {
+                    if (continuation.isActive) {
+                        it.start()
+                        mutableState.update { state -> state.copy(isSpeaking = true) }
+                        highlighter = scope.launch {
+                            var previous: SpokenWord? = null
+                            while (isActive && player.isPlaying) {
+                                val current = words.lastOrNull { timing -> timing.startMs <= player.currentPosition }
+                                if (current != null && current != previous) {
+                                    onRange?.invoke(current.start, current.end)
+                                    previous = current
+                                }
+                                delay(25)
+                            }
+                        }
+                    }
+                }
                 player.prepareAsync()
             }
-        } finally { player.release() }
+        } finally { highlighter?.cancel(); player.release() }
     }
 
     fun stop() {
@@ -278,7 +334,7 @@ class SpeechController(context: Context,
         manager.abandonAudioFocusRequest(focus)
         val current = mutableState.value
         val key = current.activeWord?.let { word -> current.activeOption?.let { word to it } }
-        mutableState.value = current.copy(activeWord = null, activeOption = null,
+        mutableState.value = current.copy(activeWord = null, activeOption = null, isSpeaking = false,
             results = if (key != null && current.results[key]?.contains("ms") != true)
                 current.results + (key to "Stopped · tap to play") else current.results)
     }

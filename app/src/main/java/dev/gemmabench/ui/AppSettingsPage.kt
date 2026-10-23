@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,23 @@ fun AppSettingsPage(preferences: AppPreferencesStore, speech: SpeechController,
                 supportingContent = { Text("Models, benchmarks, and photo experiments") },
                 trailingContent = { Text("›", style = MaterialTheme.typography.headlineSmall) })
         }
+        if (dev.gemmabench.BuildConfig.DEBUG) {
+            val context = LocalContext.current
+            TextButton(onClick = {
+                context.startActivity(android.content.Intent().setClassName(context,
+                    "dev.gemmabench.ui.WordAssistantPreviewActivity"))
+            }) { Text("Preview word assistant layout") }
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().toggleable(value = prefs.assistantShowTextInput,
+                role = Role.Switch, onValueChange = preferences::setAssistantShowTextInput)
+                .padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Assistant: show text input box", modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium)
+                Switch(checked = prefs.assistantShowTextInput, onCheckedChange = null)
+            }
+        }
         Text("Text-to-speech Engine", style = MaterialTheme.typography.titleLarge)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.selectableGroup()) {
@@ -54,8 +72,8 @@ fun AppSettingsPage(preferences: AppPreferencesStore, speech: SpeechController,
         }
         Text(when {
             voices.systemVoice == SystemVoiceAvailability.CHECKING && voices.defaultOption == SpeechOption.SYSTEM -> "Checking the system voice…"
-            voices.defaultOption == null -> "No voice is ready. Retry a voice from the word comparison buttons."
-            else -> "Using ${voices.defaultOption!!.settingsLabel} for word playback."
+            voices.defaultOption == null -> "No voice is ready. Select a voice above and try again."
+            else -> "Using ${voices.defaultOption!!.settingsLabel} for word playback and the word assistant."
         }, style = MaterialTheme.typography.bodyMedium)
         Text("If the preferred voice is unavailable, playback tries System, Kitten TTS, then Kokoro TTS. Local downloads may use mobile data.",
             style = MaterialTheme.typography.bodySmall)
@@ -75,8 +93,8 @@ fun AppSettingsPage(preferences: AppPreferencesStore, speech: SpeechController,
         }
         Text(when {
             lab.device == null && lab.busy -> "Checking local models…"
-            lab.defaultLlm != null -> "Using ${lab.defaultLlm!!.label} in Research Lab."
-            else -> "No compatible local model is installed. Download one in Research Lab."
+            lab.defaultLlm != null -> "Using ${lab.defaultLlm!!.label} for the word assistant and Research Lab."
+            else -> "No compatible local model is installed. Download one for the word assistant and Research Lab."
         }, style = MaterialTheme.typography.bodyMedium)
         Text("Automatic defaults prefer TPU, then GPU, then CPU, with E2B before E4B. A saved model choice is preferred when compatible. Settings do not start model downloads.",
             style = MaterialTheme.typography.bodySmall)

@@ -1,0 +1,2 @@
+Pronunciation lexicon derived from Misaki 0.9.4 (https://github.com/hexgrad/misaki).
+Modified: merged US gold/silver lexicons, selected default readings, lowercased keys, normalized flap/glottal symbols, and compressed as TSV.

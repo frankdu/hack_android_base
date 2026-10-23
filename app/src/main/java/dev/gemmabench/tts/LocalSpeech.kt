@@ -79,12 +79,14 @@ class SpeechModelStore(private val context: Context) {
     } }
 }
 
-data class SpeechAudio(val samples: FloatArray, val loadMs: Long, val generationMs: Long) {
+data class SpeechAudio(val samples: FloatArray, val loadMs: Long, val generationMs: Long,
+                       val words: List<SpokenWord> = emptyList(), val exactTiming: Boolean = false) {
     val durationMs get() = samples.size * 1000L / 24_000
 }
 
 /** Serializes session ownership; only one model remains loaded to bound memory use. */
 class LocalSpeech(private val context: Context) : AutoCloseable {
+    private val pronunciation = EnglishPronunciation(context)
     private val environment by lazy { OrtEnvironment.getEnvironment() }
     private val words by lazy {
         context.assets.open("tts/dictionary-tokens.json").bufferedReader().use {
@@ -99,8 +101,9 @@ class LocalSpeech(private val context: Context) : AutoCloseable {
     @Synchronized fun generate(option: SpeechOption, word: String, file: File): SpeechAudio {
         check(!closed) { "Speech engine closed" }
         require(option != SpeechOption.SYSTEM)
-        val entry = words.getAsJsonObject(word) ?: error("Pronunciation missing. Regenerate dictionary TTS assets.")
-        val ids = entry.getAsJsonArray(option.name.lowercase()).map { it.asLong }.toLongArray()
+        val entry = words.getAsJsonObject(word)
+        val tokens = if (entry == null) pronunciation.tokenize(word, option) else null
+        val ids = tokens?.ids ?: entry!!.getAsJsonArray(option.name.lowercase()).map { it.asLong }.toLongArray()
         require(ids.isNotEmpty() && ids.size <= 510) { "Unsupported pronunciation length" }
         val loadStart = SystemClock.elapsedRealtime()
         if (loaded != option) {
@@ -122,15 +125,21 @@ class LocalSpeech(private val context: Context) : AutoCloseable {
             loaded = option
         }
         val loadMs = SystemClock.elapsedRealtime() - loadStart
-        val styleIndex = if (option == SpeechOption.KOKORO) ids.size else entry["kittenStyle"].asInt
+        val styleIndex = if (option == SpeechOption.KOKORO) ids.size else
+            (tokens?.styleIndex ?: entry!!["kittenStyle"].asInt).coerceAtMost(styles.size / 256 - 1)
         val offset = styleIndex * 256
         require(offset + 256 <= styles.size) { "Invalid voice style" }
         val padded = longArrayOf(0) + ids + longArrayOf(0)
         val start = SystemClock.elapsedRealtime()
-        val audio = OnnxTensor.createTensor(environment, LongBuffer.wrap(padded), longArrayOf(1, padded.size.toLong())).use { tokens ->
+        var durations: LongArray? = null
+        val audio = OnnxTensor.createTensor(environment, LongBuffer.wrap(padded), longArrayOf(1, padded.size.toLong())).use { input ->
             OnnxTensor.createTensor(environment, FloatBuffer.wrap(styles.copyOfRange(offset, offset + 256)), longArrayOf(1, 256)).use { style ->
                 OnnxTensor.createTensor(environment, FloatBuffer.wrap(floatArrayOf(if (option == SpeechOption.KITTEN) 0.8f else 1f)), longArrayOf(1)).use { speed ->
-                    session!!.run(mapOf("input_ids" to tokens, "style" to style, "speed" to speed)).use { result ->
+                    session!!.run(mapOf("input_ids" to input, "style" to style, "speed" to speed)).use { result ->
+                        if (option == SpeechOption.KITTEN) {
+                            val buffer = (result[1] as OnnxTensor).longBuffer
+                            durations = LongArray(buffer.remaining()).also(buffer::get)
+                        }
                         val buffer = (result[0] as OnnxTensor).floatBuffer
                         FloatArray(buffer.remaining()).also(buffer::get)
                     }
@@ -140,7 +149,18 @@ class LocalSpeech(private val context: Context) : AutoCloseable {
         // Kitten's reference implementation removes its 5000-sample trailing padding.
         val samples = if (option == SpeechOption.KITTEN && audio.size > 5000) audio.copyOf(audio.size - 5000) else audio
         check(samples.isNotEmpty() && samples.all { it.isFinite() }) { "Speech synthesis produced invalid audio" }
-        return SpeechAudio(samples, loadMs, SystemClock.elapsedRealtime() - start)
+        val durationMs = samples.size * 1000L / 24_000
+        val alignment = durations?.takeIf { it.size == padded.size }?.let { frames ->
+            tokens?.words?.map { (chars, phones) ->
+                val begin = frames.take(phones.first + 1).sum()
+                val end = begin + phones.sumOf { frames[it + 1] }
+                // Kitten exports 40 Hz phoneme durations; trimming affects only the audio tail.
+                SpokenWord(chars.first, chars.last + 1, (begin * 25).coerceAtMost(durationMs),
+                    (end * 25).coerceAtMost(durationMs))
+            }
+        }
+        return SpeechAudio(samples, loadMs, SystemClock.elapsedRealtime() - start,
+            alignment ?: estimatedWordTimes(word, durationMs), alignment != null)
     }
 
     @Synchronized override fun close() {

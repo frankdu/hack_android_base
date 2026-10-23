@@ -1,4 +1,6 @@
-# Dictionary TTS comparison
+# Dictionary TTS engines
+
+The word browser now has one speaker icon using the Settings default and one assistant icon. The engine comparison below records the original research; see [word assistant](WORD_ASSISTANT.md) for generated sentences and highlighting.
 
 Research checked 2026-10-21. The recommendations below are for short English dictionary words on ARM64 Android phones. They balance startup latency, voice quality, storage, licensing, and integration maturity; they are not a universal TTS leaderboard.
 
@@ -56,7 +58,7 @@ The generator selects `KOKORO_VOICE = 'am_adam'` and `KITTEN_VOICE_ID = 'expr-vo
 
 Build, all 52 JVM unit tests, and Android lint passed (lint reports dependency/style warnings; no errors). The vocabulary-to-token SHA-256, word coverage, token ranges, and style bounds are checked by a JVM unit test. Both actual INT8 models also passed eight host synthesis checks with the current Adam and Kiki voice assets, using the Android implementation's token/style inputs and ONNX Runtime 1.24.1 CPU; every output was finite and non-silent. Raw host measurements are in [TTS_HOST_VALIDATION.json](TTS_HOST_VALIDATION.json), explicitly labeled as macOS host timings and including each voice ID.
 
-Android tests in `DictionarySpeechInstrumentedTest` cover pronunciation coverage, real model downloads and non-silent audio, cold/warm synthesis timing, all three playback routes, and cancellation. `KidsEnglishInstrumentedTest` covers the three distinct per-word controls, category navigation, recreation, and Research Lab navigation.
+Android tests in `DictionarySpeechInstrumentedTest` cover pronunciation coverage, real model downloads and non-silent audio, cold/warm synthesis timing, all three playback routes, and cancellation. `KidsEnglishInstrumentedTest` covers the speaker and assistant icon controls, category navigation, recreation, and Research Lab navigation.
 
 Six tests passed on the existing ARM64 Android 16 emulator before the voice change: both local downloads/inference, both local playback routes and cancellation, vocabulary coverage, and all three dictionary UI/navigation tests. [TTS_EMULATOR_VALIDATION.json](TTS_EMULATOR_VALIDATION.json) preserves those historical Heart/Bella measurements and identifies their voice IDs; these are emulator results, not Pixel benchmarks or measurements of Adam/Kiki. The separate system-TTS playback test could not pass because the emulator's preinstalled `com.google.android.tts` crashes with SIGILL in `libgoogle_speech_sbg_tts_jni.so`; the app reports a timeout and permits a fresh engine initialization on retry. System playback still needs a physical device check.
 

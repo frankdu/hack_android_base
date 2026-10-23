@@ -11,16 +11,19 @@ import dev.gemmabench.data.KidsEnglishDictionary
 import dev.gemmabench.ui.DictionaryState
 import dev.gemmabench.ui.KidsEnglishApp
 import dev.gemmabench.tts.SpeechController
+import dev.gemmabench.voice.VoiceAgentController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
     private lateinit var speech: SpeechController
+    private lateinit var agent: VoiceAgentController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         speech = SpeechController(this)
+        agent = VoiceAgentController(this, (application as GemmaBenchApplication).lab, speech)
         enableEdgeToEdge()
         setContent {
             val dictionary by produceState<DictionaryState>(DictionaryState.Loading) {
@@ -37,18 +40,20 @@ class MainActivity : ComponentActivity() {
                     DictionaryState.Error
                 }
             }
-            KidsEnglishApp(dictionary, speech, (application as GemmaBenchApplication).preferences) {
+            KidsEnglishApp(dictionary, speech, (application as GemmaBenchApplication).preferences, agent) {
                 startActivity(Intent(this, ResearchLabActivity::class.java))
             }
         }
     }
 
     override fun onStop() {
+        agent.cancel()
         speech.stop()
         super.onStop()
     }
 
     override fun onDestroy() {
+        agent.close()
         speech.close()
         super.onDestroy()
     }

@@ -135,13 +135,12 @@ class KidsEnglishInstrumentedTest {
         }
     }
 
-    @Test fun everyVisibleWordHasThreeDistinctSpeechButtons() {
+    @Test fun everyVisibleWordHasSpeakAndAssistantIconButtons() {
         ActivityScenario.launch(MainActivity::class.java).use {
             awaitText("100 categories")
             clickText("animal")
             awaitText("dog")
-            for (voice in listOf("Android", "Kokoro", "Kitten")) {
-                val description = "Play dog with $voice"
+            for (description in listOf("Speak dog", "Talk about dog with Gemma")) {
                 val deadline = SystemClock.uptimeMillis() + 10_000
                 var button: AccessibilityNodeInfo? = null
                 while (SystemClock.uptimeMillis() < deadline && button == null) {
@@ -153,6 +152,26 @@ class KidsEnglishInstrumentedTest {
                 while (clickable != null && !clickable.isClickable) clickable = clickable.parent
                 assertNotNull("Expected a clickable control for: $description", clickable)
             }
+        }
+    }
+
+    @Test fun assistantExplainsMissingModelAndReturnsToSelectedWordList() {
+        val app = instrumentation.targetContext.applicationContext as GemmaBenchApplication
+        runBlocking { withTimeout(10_000) { while (app.lab.state.value.busy) delay(50) } }
+        org.junit.Assume.assumeTrue("Requires no installed model", app.lab.state.value.models.isEmpty())
+        instrumentation.uiAutomation.grantRuntimePermission(instrumentation.targetContext.packageName,
+            android.Manifest.permission.RECORD_AUDIO)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            awaitText("100 categories")
+            clickText("animal")
+            clickDescription("Talk about dog with Gemma")
+            awaitText("Word assistant")
+            awaitText("Download a multimodal Gemma model")
+            awaitText("Type a question")
+            clickDescription("Back")
+            awaitText("Tap a word to hear")
+            awaitText("dog")
+            assertNotNull(findDescription(instrumentation.uiAutomation.rootInActiveWindow, "Speak dog"))
         }
     }
 

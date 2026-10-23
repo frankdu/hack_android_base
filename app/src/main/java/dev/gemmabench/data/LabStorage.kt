@@ -47,7 +47,8 @@ class LabStorage(private val context: Context) {
     fun refreshModelMetadata(): List<ModelArtifact> {
         val installed = models()
         val updated = installed.map { model ->
-            if (model.metadata?.visionSupported == null) model.copy(metadata = inspectModel(file(model))) else model
+            if (model.metadata?.visionSupported == null || model.metadata.audioSupported == null)
+                model.copy(metadata = inspectModel(file(model))) else model
         }
         if (updated != installed) writeJson(manifest, updated)
         return updated
@@ -140,6 +141,7 @@ class LabStorage(private val context: Context) {
                 info.isDynamicContext(), info.minRuntimeVersion(),
                 (info as? ModelInfo.Llm)?.hasSpeculativeDecodingSupport() == true,
                 info.inputModalities().vision, info.supportedBackends(Modality.VISION).map { it.name },
+                info.inputModalities().audio, info.supportedBackends(Modality.AUDIO).map { it.name },
             )
         }
     } catch (e: LinkageError) {

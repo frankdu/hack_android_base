@@ -67,4 +67,13 @@ class DefaultSelectionTest {
         assertEquals(ModelSlot.E2B, selectLocalLlm(models, noTpu)?.family)
         assertEquals(ModelSlot.E4B, selectLocalLlm(models, noTpu, photos = true)?.family)
     }
+
+    @Test fun assistantSkipsTextOnlyModelsAndUnavailableAudioBackends() {
+        val text = model(ModelSlot.E2B).let { it.copy(metadata = it.metadata!!.copy(audioSupported = false)) }
+        val audio = model(ModelSlot.E4B).let { it.copy(metadata = it.metadata!!.copy(audioSupported = true, audioBackends = listOf("CPU"))) }
+        assertEquals(ModelSlot.E4B, selectLocalLlm(listOf(text, audio), noTpu, audio = true)?.family)
+        assertNull(selectLocalLlm(listOf(text), noTpu, audio = true))
+        val unsupported = audio.copy(metadata = audio.metadata!!.copy(audioBackends = listOf("NPU")))
+        assertNull(selectLocalLlm(listOf(unsupported), noTpu, audio = true))
+    }
 }

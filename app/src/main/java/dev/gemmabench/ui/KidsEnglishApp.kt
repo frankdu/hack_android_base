@@ -1,5 +1,11 @@
 package dev.gemmabench.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import dev.gemmabench.voice.VoiceAgentController
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,8 +27,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gemmabench.data.WordCategory
 import dev.gemmabench.R
 import dev.gemmabench.tts.SpeechController
-import dev.gemmabench.tts.SpeechOption
-import dev.gemmabench.tts.SystemVoiceAvailability
 import dev.gemmabench.settings.AppPreferencesStore
 import dev.gemmabench.settings.settingsLabel
 
@@ -32,7 +36,7 @@ sealed interface DictionaryState {
     data object Error : DictionaryState
 }
 
-private val WordColors = lightColorScheme(
+internal val WordColors = lightColorScheme(
     primary = Color(0xFF176B55),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFCEEEDD),
@@ -45,19 +49,35 @@ private val WordColors = lightColorScheme(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, preferences: AppPreferencesStore,
+fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, preferences: AppPreferencesStore, agent: VoiceAgentController,
                    onOpenResearchLab: () -> Unit) {
     var selectedCategory by rememberSaveable { mutableStateOf<Int?>(null) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     val speechState by speech.state.collectAsStateWithLifecycle()
-    LaunchedEffect(selectedCategory, settingsOpen) { speech.stop() }
+    val prefs by preferences.state.collectAsStateWithLifecycle()
+    val voice by agent.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var pendingWord by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        pendingWord?.let { (word, category) -> agent.start(word, category, granted) }
+        pendingWord = null
+    }
+    fun openAssistant(word: String, category: String) {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            agent.start(word, category, true)
+        } else {
+            pendingWord = word to category
+            microphone.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    LaunchedEffect(selectedCategory, settingsOpen) { speech.stop(); agent.end() }
     val categoryListState = rememberLazyListState()
     val wordListState = key(selectedCategory) { rememberLazyListState() }
     val categories = (dictionary as? DictionaryState.Ready)?.categories.orEmpty()
     val category = selectedCategory?.let(categories::getOrNull)
-    val canGoBack = settingsOpen || selectedCategory != null
+    val canGoBack = settingsOpen || voice.word != null || selectedCategory != null
     val goBack: () -> Unit = {
-        if (settingsOpen) settingsOpen = false else selectedCategory = null
+        if (settingsOpen) settingsOpen = false else if (voice.word != null) agent.end() else selectedCategory = null
     }
     BackHandler(enabled = canGoBack, onBack = goBack)
 
@@ -68,11 +88,12 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                     title = {
                         Text(when {
                             settingsOpen -> "Settings"
+                            voice.word != null -> "Word assistant"
                             else -> selectedCategory?.let { categories.getOrNull(it)?.name } ?: "English words"
                         }, maxLines = 2)
                     },
                     navigationIcon = {
-                        if (settingsOpen || selectedCategory != null) {
+                        if (settingsOpen || voice.word != null || selectedCategory != null) {
                             IconButton(onClick = goBack) {
                                 Icon(painterResource(R.drawable.ic_arrow_back_24), contentDescription = "Back")
                             }
@@ -80,9 +101,10 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                     },
                     actions = {
                         if (!settingsOpen) {
-                            if (speechState.activeWord != null) {
+                            if (speechState.activeWord != null && voice.word == null) {
                                 IconButton(onClick = speech::stop) {
-                                    Icon(painterResource(R.drawable.ic_stop_24), contentDescription = "Stop playback")
+                                    Icon(painterResource(R.drawable.ic_stop_24), contentDescription = "Stop playback",
+                                        tint = Color(0xFFD32F2F))
                                 }
                             }
                             IconButton(onClick = { settingsOpen = true }) {
@@ -94,10 +116,20 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                 )
             },
         ) { insets ->
-            Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
                 val contentModifier = Modifier.widthIn(max = 720.dp).fillMaxSize()
                 when {
                     settingsOpen -> AppSettingsPage(preferences, speech, contentModifier, onOpenResearchLab)
+                    voice.word != null -> WordAssistantPage(voice,
+                        onTalk = {
+                            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) agent.listen()
+                            else { pendingWord = voice.word!! to voice.category; microphone.launch(Manifest.permission.RECORD_AUDIO) }
+                        }, onCancel = agent::cancel, onStopListening = agent::finishListening, onSend = agent::send,
+                        onMicrophoneSettings = {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${context.packageName}")))
+                        },
+                        modifier = contentModifier, showTextInput = prefs.assistantShowTextInput)
                     dictionary is DictionaryState.Loading -> Box(contentModifier, contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             CircularProgressIndicator()
@@ -117,44 +149,32 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("${category.items.size} words to explore", style = MaterialTheme.typography.bodyLarge)
-                                    Text("Tap a word to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}, or use the buttons to compare.",
-                                        style = MaterialTheme.typography.bodyMedium)
-                                    Text("Tap a voice to compare. Local models download once (Kokoro 92 MB · Kitten 24 MB); mobile data may be used.",
+                                    Text("Tap a word to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}. Tap the sparkle to explore it with Gemma.",
                                         style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                             itemsIndexed(category.items) { index, word ->
                                 Surface(shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) {
-                                            speech.speakDefault(word)
-                                        }.semantics { contentDescription = "Play $word with default voice" },
+                                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Text("${index + 1}", color = MaterialTheme.colorScheme.primary,
                                                 style = MaterialTheme.typography.labelLarge)
-                                            Text(word, style = MaterialTheme.typography.headlineSmall)
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            SpeechOption.entries.forEach { option ->
-                                                val active = speechState.activeWord == word && speechState.activeOption == option
-                                                Column(Modifier.weight(1f)) {
-                                                    OutlinedButton(
-                                                        onClick = { if (active) speech.stop() else speech.speak(word, option) },
-                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
-                                                        modifier = Modifier.fillMaxWidth().semantics {
-                                                            contentDescription = "${if (active) "Stop" else "Play"} $word with ${option.label}"
-                                                        },
-                                                    ) { Text(option.label, maxLines = 1) }
-                                                    Text(speechState.results[word to option] ?: when {
-                                                        option == SpeechOption.SYSTEM && speechState.systemVoice != SystemVoiceAvailability.AVAILABLE ->
-                                                            if (speechState.systemVoice == SystemVoiceAvailability.CHECKING) "Checking…" else "Unavailable"
-                                                        option !in speechState.ready -> "Download ${option.bytes / 1_000_000} MB"
-                                                        else -> "Ready"
-                                                    }, style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary)
-                                                }
+                                            Text(word, style = MaterialTheme.typography.headlineSmall,
+                                                modifier = Modifier.weight(1f).clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                                    agent.end(); speech.speakDefault(word)
+                                                }.semantics { contentDescription = "Play $word with default voice" })
+                                            IconButton(onClick = { agent.end(); speech.speakDefault(word) }) {
+                                                SpeakingIcon(playing = speechState.activeWord == word && speechState.isSpeaking,
+                                                    contentDescription = "Speak $word")
                                             }
+                                            FilledTonalIconButton(onClick = { openAssistant(word, category.name) }) {
+                                                Icon(painterResource(R.drawable.ic_assistant_24), contentDescription = "Talk about $word with Gemma")
+                                            }
+                                        }
+                                        speechState.lastError?.takeIf { it.first == word }?.let { (_, message) ->
+                                            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                         }
                                     }
                                 }

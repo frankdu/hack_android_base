@@ -23,6 +23,59 @@ class DictionarySpeechInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
 
+    @Test fun generatedSentencesHaveNonSilentAudioAndValidWordTiming() = runBlocking {
+        val text = "A butterfly is an insect with colorful wings."
+        val store = SpeechModelStore(context)
+        LocalSpeech(context).use { engine ->
+            for (option in listOf(SpeechOption.KITTEN, SpeechOption.KOKORO)) {
+                val file = store.prepare(option) {}
+                val audio = withContext(Dispatchers.Default) { engine.generate(option, text, file) }
+                assertTrue("${option.label}: missing speech", audio.durationMs > 1000)
+                assertTrue(audio.samples.any { kotlin.math.abs(it) > 0.01f })
+                assertEquals(listOf("A", "butterfly", "is", "an", "insect", "with", "colorful", "wings"),
+                    audio.words.map { text.substring(it.start, it.end) })
+                assertTrue(audio.words.zipWithNext().all { (a, b) -> a.endMs <= b.startMs })
+                assertTrue(audio.words.all { it.startMs >= 0 && it.endMs <= audio.durationMs })
+                assertEquals(option == SpeechOption.KITTEN, audio.exactTiming)
+                Log.i("VoiceAgent", "${option.label}: ${audio.durationMs} ms audio; aligned=${audio.exactTiming}; ${audio.words}")
+            }
+        }
+    }
+
+    @Test fun generatedSentenceUsesSavedVoiceAndPublishesHighlights() {
+        val app = context.applicationContext as GemmaBenchApplication
+        val saved = app.preferences.state.value
+        lateinit var controller: SpeechController
+        instrumentation.runOnMainSync {
+            app.preferences.setSpeechEngine(SpeechOption.KITTEN)
+            controller = SpeechController(context)
+        }
+        try {
+            val ranges = mutableListOf<Pair<Int, Int>>()
+            runBlocking {
+                withContext(Dispatchers.Main) {
+                    withTimeout(120_000) {
+                        controller.speakText("Dogs bark to talk to each other.") { start, end ->
+                            assertTrue("Playback animation must be active during speech", controller.state.value.isSpeaking)
+                            ranges += start to end
+                        }
+                    }
+                }
+            }
+            assertTrue("No word highlighting during playback", ranges.size >= 5)
+            assertNull(controller.state.value.activeWord)
+            assertFalse("Playback animation must stop with speech", controller.state.value.isSpeaking)
+            assertTrue(controller.state.value.results.keys.any { it.second == SpeechOption.KITTEN })
+            assertFalse(controller.state.value.results.keys.any { it.second == SpeechOption.KOKORO })
+        } finally {
+            instrumentation.runOnMainSync {
+                controller.close(); app.preferences.reset()
+                saved.speechEngine?.let(app.preferences::setSpeechEngine)
+                saved.llmFamily?.let(app.preferences::setLlmFamily)
+            }
+        }
+    }
+
     @Test fun everyDictionaryWordHasBothPronunciations() {
         val source = context.assets.open(KidsEnglishDictionary.ASSET_NAME).use { it.readBytes() }
         val tokens = context.assets.open("tts/dictionary-tokens.json").bufferedReader().use {

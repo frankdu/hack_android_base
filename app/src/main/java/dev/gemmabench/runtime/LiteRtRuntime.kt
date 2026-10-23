@@ -94,11 +94,18 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
         throw IllegalStateException("Cannot load native vision libraries: ${e.message}", e)
     }
 
+    /** Audio-enabled engine is retained for both transcription and subsequent text replies. */
+    suspend fun voiceText(model: ModelArtifact, settings: RunSettings, audio: ByteArray?, onText: (String) -> Unit): String =
+        try { measureNative(model, settings, onText, audio = audio, voice = true).output.orEmpty() }
+        catch (e: LinkageError) { throw IllegalStateException("Cannot load voice inference: ${e.message}", e) }
+
     private suspend fun measureNative(
         model: ModelArtifact,
         settings: RunSettings,
         onText: (String) -> Unit,
         jpeg: ByteArray? = null,
+        audio: ByteArray? = null,
+        voice: Boolean = false,
     ): Measurement {
         check(!stopped.get()) { "Run stopped." }
         val file = modelFile(model)
@@ -123,12 +130,24 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             return Measurement(info.metrics(), elapsedMs(start))
         }
 
-        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}:vision=${jpeg != null}"
+        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}:vision=${jpeg != null}:audio=$voice"
         val reused = engine != null && key == engineKey
         var loadMs: Double? = null
         if (!reused) {
             unload()
             var vision: Backend? = null
+            var audioBackend: Backend? = null
+            if (voice) {
+                ModelInfo.from(file.absolutePath).use { info ->
+                    require(info.inputModalities().audio) {
+                        "This model has no audio encoder. Download a multimodal Gemma model in Settings → Research Lab."
+                    }
+                    val supported = info.supportedBackends(Modality.AUDIO).map { it.name }
+                    val selected = visionAccelerator(supported, settings.accelerator, tpuSupport.available)
+                        ?: error("Audio encoder requires an unavailable backend: ${supported.joinToString()}.")
+                    audioBackend = backend(selected)
+                }
+            }
             if (jpeg != null) {
                 ModelInfo.from(file.absolutePath).use { info ->
                     require(info.inputModalities().vision) { "This model has no vision encoder. Import a multimodal Gemma model." }
@@ -145,6 +164,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                 modelPath = file.absolutePath,
                 backend = backend(settings.accelerator),
                 visionBackend = vision,
+                audioBackend = audioBackend,
                 maxNumImages = if (jpeg != null) 1 else null,
                 maxNumTokens = settings.contextTokens,
                 cacheDir = cache(model, settings),
@@ -178,8 +198,11 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             var firstVisibleMs: Double? = null
             var lastPublish = 0L
             val requestStart = SystemClock.elapsedRealtimeNanos()
-            val contents = if (jpeg == null) Contents.of(settings.prompt)
-                else Contents.of(Content.ImageBytes(jpeg), Content.Text(settings.prompt))
+            val contents = when {
+                audio != null -> Contents.of(Content.AudioBytes(audio), Content.Text(settings.prompt))
+                jpeg != null -> Contents.of(Content.ImageBytes(jpeg), Content.Text(settings.prompt))
+                else -> Contents.of(settings.prompt)
+            }
             conversation.sendMessageAsync(contents,
                 responseFormat = if (jpeg != null) ResponseFormat.json(PhotoObjects.SCHEMA) else null,
             ).bufferInferenceChunks().collect { message ->

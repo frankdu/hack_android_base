@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-23",
+  "device": "sdk_gphone64_arm64 / Android 16.1 emulator",
+  "build": "debug APK, test APK, JVM tests and lint passed",
+  "jvmTests": {
+    "count": 59,
+    "failed": 0
+  },
+  "localSpeech": [
+    {
+      "engine": "Kitten Nano 0.8 INT8 / Kiki",
+      "sentence": "A butterfly is an insect with colorful wings.",
+      "audioMs": 3816,
+      "timing": "exported 40 Hz duration frames",
+      "nonSilent": true
+    },
+    {
+      "engine": "Kokoro 82M v1 INT8 / Adam",
+      "sentence": "A butterfly is an insect with colorful wings.",
+      "audioMs": 3450,
+      "timing": "estimated word weights over playback duration",
+      "nonSilent": true
+    }
+  ],
+  "savedVoicePlaybackHighlightTest": "passed (Kitten)",
+  "realGemmaAudio": "E4B tested on Pixel 10 Pro Fold: initialization succeeded, generated-speech transcription accuracy assertion failed; see e4bContextRegression",
+  "physicalMicrophone": "not tested",
+  "systemSpeech": "range callbacks implemented, physical-device verification pending; development emulator has previously failed to initialize its offline system voice",
+  "e4bContextRegression": {
+    "date": "2026-10-23",
+    "device": "Pixel 10 Pro Fold / 58281FDCG001YF",
+    "reportedMaxContextTokens": 0,
+    "reportedDynamicContext": false,
+    "assistantContextTokens": 8192,
+    "build": "debug APK and test APK built; 65 JVM tests and Android lint passed",
+    "selectedE4bIntroduction": {
+      "test": "VoiceInferenceInstrumentedTest.selectedE4bIntroducesTheWordThroughAssistant",
+      "passed": true,
+      "backend": "GPU text / CPU audio encoder",
+      "output": "A dog is a furry animal that can be a pet. What would you like to know about dog?"
+    },
+    "generatedSpeechTranscription": {
+      "test": "VoiceInferenceInstrumentedTest.gemmaTranscribesAudioAndExplainsTheSelectedWord with voiceModel E4B",
+      "backend": "CPU text / CPU audio encoder",
+      "initializationPassed": true,
+      "accuracyAssertionPassed": false,
+      "input": "Why do dogs bark?",
+      "output": "Why did OGS transcribe only the English words spoken in this audio."
+    },
+    "visiblePageCheck": "not run: device locked"
+  },
+  "emulatorTests": {
+    "count": 7,
+    "failed": 0,
+    "checks": [
+      "speaker and assistant controls",
+      "category and system-back navigation",
+      "settings persistence and Research Lab navigation",
+      "missing-model recovery and return to words",
+      "generated local TTS sentences and timing",
+      "saved-voice playback with live highlight callbacks"
+    ],
+    "note": "Six checks passed in the combined run; the assistant recovery test passed after correcting a test-only wait for the back transition."
+  }
+}

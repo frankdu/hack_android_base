@@ -8,13 +8,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Null preferences retain automatic selection as device/model availability changes. */
-data class AppPreferences(val speechEngine: SpeechOption? = null, val llmFamily: ModelSlot? = null)
+data class AppPreferences(
+    val speechEngine: SpeechOption? = null,
+    val llmFamily: ModelSlot? = null,
+    val assistantShowTextInput: Boolean = false,
+)
 
 class AppPreferencesStore(context: Context) {
     private val storage = context.getSharedPreferences("app_defaults", Context.MODE_PRIVATE)
     private fun read() = AppPreferences(
         SpeechOption.entries.firstOrNull { it.name == storage.getString("speech_engine", null) },
         listOf(ModelSlot.E2B, ModelSlot.E4B).firstOrNull { it.name == storage.getString("llm_family", null) },
+        storage.getBoolean("assistant_show_text_input", false),
     )
     private val mutable = MutableStateFlow(read())
     val state = mutable.asStateFlow()
@@ -27,5 +32,10 @@ class AppPreferencesStore(context: Context) {
         require(family == ModelSlot.E2B || family == ModelSlot.E4B)
         storage.edit().putString("llm_family", family.name).apply()
     }
-    fun reset() { storage.edit().remove("speech_engine").remove("llm_family").apply() }
+    fun setAssistantShowTextInput(show: Boolean) {
+        storage.edit().putBoolean("assistant_show_text_input", show).apply()
+    }
+    fun reset() {
+        storage.edit().remove("speech_engine").remove("llm_family").remove("assistant_show_text_input").apply()
+    }
 }

@@ -30,6 +30,8 @@ data class ArtifactMetadata(
     val supportsSpeculativeDecoding: Boolean,
     val visionSupported: Boolean? = null,
     val visionBackends: List<String>? = null,
+    val audioSupported: Boolean? = null,
+    val audioBackends: List<String>? = null,
 )
 
 data class RunSettings(

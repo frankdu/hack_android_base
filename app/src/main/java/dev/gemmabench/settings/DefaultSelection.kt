@@ -31,6 +31,9 @@ fun localLlmCandidates(preferred: ModelSlot?, tpu: TpuSupport): List<LocalLlmCho
 
 /** Availability means installed artifact + declared backend support + TPU device/runtime checks. */
 fun selectLocalLlm(models: List<ModelArtifact>, tpu: TpuSupport, preferred: ModelSlot? = null,
-                   photos: Boolean = false): LocalLlmChoice? = localLlmCandidates(preferred, tpu).firstOrNull { choice ->
-    models.any { it.slot == choice.slot && it.unavailableReason(choice.accelerator, tpu, photos) == null }
+                   photos: Boolean = false, audio: Boolean = false): LocalLlmChoice? = localLlmCandidates(preferred, tpu).firstOrNull { choice ->
+    models.any { it.slot == choice.slot && it.unavailableReason(choice.accelerator, tpu, photos) == null &&
+        (!audio || (it.metadata?.audioSupported != false &&
+            (it.metadata?.audioBackends.isNullOrEmpty() ||
+                visionAccelerator(it.metadata.audioBackends, choice.accelerator, tpu.available) != null))) }
 }
