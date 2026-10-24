@@ -18,7 +18,9 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
         .filter { File(it.imagePath).isFile }
 
     fun generate(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
-        steps: Int, progress: (Int, Int) -> Unit): ImageResult {
+        steps: Int, method: ImageMethod = ImageMethod.CPU, outputDirectory: File? = null,
+        progress: (Int, Int) -> Unit): ImageResult {
+        require(method != ImageMethod.TPU) { "No Tensor-compiled diffusion model is installed for TPU execution." }
         require(model.id in store.ready()) { "Download and verify all ${model.name} files first." }
         require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank()) { "Enter a word, category and prompt." }
         require(prompt.length <= 2000) { "Use a prompt shorter than 2000 characters." }
@@ -28,8 +30,8 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
         val nativeStart = SystemClock.elapsedRealtime()
         var denoiseStart = nativeStart
         var denoiseEnd = nativeStart
-        val pixels = DiffusionNative.generate(paths[0], paths.getOrElse(1) { "" }, paths.getOrElse(2) { "" },
-            prompt, model.flux, steps, seed, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)) { step, total, _ ->
+        val pixels = DiffusionNative.generateOnBackend(paths[0], paths.getOrElse(1) { "" }, paths.getOrElse(2) { "" },
+            prompt, model.flux, method == ImageMethod.GPU, steps, seed, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)) { step, total, _ ->
                 if (total == steps) {
                     if (step == 0) denoiseStart = SystemClock.elapsedRealtime()
                     if (step == total) denoiseEnd = SystemClock.elapsedRealtime()
@@ -38,17 +40,20 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
             } ?: throw CancellationException("Image generation stopped.")
         val nativeMs = SystemClock.elapsedRealtime() - nativeStart
         check(pixels.size == 512 * 512) { "Unexpected image dimensions from native runtime." }
+        check(pixels.any { it != pixels.first() }) { "The backend returned a uniform blank image; this device/backend may be incompatible." }
         val timestamp = System.currentTimeMillis()
-        val file = File(outputDirectory(), "$timestamp-${model.id}.png")
+        val directory = outputDirectory?.apply { mkdirs() } ?: outputDirectory()
+        val file = File(directory, "$timestamp-${model.id}-${method.name}.png")
         val bitmap = Bitmap.createBitmap(pixels, 512, 512, Bitmap.Config.ARGB_8888)
         try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
         finally { bitmap.recycle() }
         val result = ImageResult(model.id, model.name, word.trim(), category.trim(), prompt, seed, steps,
             SystemClock.elapsedRealtime() - totalStart, nativeMs, highWaterRssKb(), file.absolutePath, timestamp,
             model.files.associate { it.filename to it.sha256 }, "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.SOC_MODEL}",
+            backend = if (method == ImageMethod.GPU) "Vulkan GPU denoiser (text + VAE on CPU)" else "ARM CPU",
             loadAndEncodeMs = denoiseStart - nativeStart, denoiseMs = (denoiseEnd - denoiseStart).coerceAtLeast(0),
             decodeAndSaveMs = (SystemClock.elapsedRealtime() - denoiseEnd).coerceAtLeast(0))
-        File(outputDirectory(), file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
+        File(directory, file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
         return result
     }
     private fun highWaterRssKb(): Long = runCatching {

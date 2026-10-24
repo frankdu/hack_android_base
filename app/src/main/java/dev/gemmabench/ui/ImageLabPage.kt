@@ -186,6 +186,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
             }
         }
     }
+    ImageBenchmarkSection(state, controller, selected)
 }
 
 private fun decimal(value: Double) = String.format(Locale.US, "%.2f", value)

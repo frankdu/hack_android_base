@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 #include "stable-diffusion.h"
+#ifdef WORD_DIFFUSION_VULKAN
+#include "ggml-vulkan.h"
+#endif
 
 namespace {
 std::mutex context_mutex;
@@ -40,22 +43,34 @@ Java_dev_gemmabench_imagegen_DiffusionNative_requestStop(JNIEnv*, jobject) {
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
-Java_dev_gemmabench_imagegen_DiffusionNative_generate(JNIEnv* env, jobject,
+Java_dev_gemmabench_imagegen_DiffusionNative_generateOnBackend(JNIEnv* env, jobject,
         jstring model_path, jstring encoder_path, jstring vae_path, jstring prompt,
-        jboolean flux, jint steps, jlong seed, jint threads, jobject listener) {
+        jboolean flux, jboolean gpu, jint steps, jlong seed, jint threads, jobject listener) {
     const auto features = getauxval(AT_HWCAP);
     if (!(features & HWCAP_ASIMDHP) || !(features & HWCAP_ASIMDDP)) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Image generation requires ARM FP16 and dot-product instructions (supported by Pixel 10/11).");
         return nullptr;
     }
     UtfString model(env, model_path), encoder(env, encoder_path), vae(env, vae_path), text(env, prompt);
+    if (gpu) {
+#ifdef WORD_DIFFUSION_VULKAN
+        if (ggml_backend_vk_get_device_count() < 1) {
+            env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "No Vulkan GPU is available. GPU was not rerouted to CPU.");
+            return nullptr;
+        }
+#else
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "This build does not include Vulkan GPU support.");
+        return nullptr;
+#endif
+    }
     sd_set_log_callback(log_callback, nullptr);
     sd_ctx_params_t ctx_params;
     sd_ctx_params_init(&ctx_params);
     ctx_params.n_threads = threads;
     ctx_params.enable_mmap = true;
-    ctx_params.backend = "cpu";
-    ctx_params.params_backend = "cpu";
+    // The Pixel PowerVR decoder can stall; compare a reproducible hybrid GPU pipeline.
+    ctx_params.backend = gpu ? "te=cpu,diffusion=vulkan0,vae=cpu" : "cpu";
+    ctx_params.params_backend = gpu ? nullptr : "cpu";
     ctx_params.flash_attn = true;
     ctx_params.rng_type = CPU_RNG;
     if (flux) {
@@ -116,4 +131,13 @@ Java_dev_gemmabench_imagegen_DiffusionNative_generate(JNIEnv* env, jobject,
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Image generation failed. The model may exceed available device memory; see WordDiffusion in logcat.");
     }
     return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_gemmabench_imagegen_DiffusionNative_vulkanBuilt(JNIEnv*, jobject) {
+#ifdef WORD_DIFFUSION_VULKAN
+    return true;
+#else
+    return false;
+#endif
 }

@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name="dev.gemmabench.ui.ImageBenchmarkPreviewActivity" android:exported="false" />
         <activity android:name="dev.gemmabench.ui.WordAssistantPreviewActivity" android:exported="true"
             android:windowSoftInputMode="adjustResize" />
     </application>

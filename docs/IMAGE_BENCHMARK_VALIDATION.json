@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-23",
+  "device": "Pixel 10 Pro Fold / Tensor G5",
+  "hostUnitTests": {
+    "tests": 74,
+    "failures": 0
+  },
+  "lint": "passed",
+  "debugApkBuild": "passed",
+  "uiTest": "Passed on ARM Android emulator: setup, stats, gallery, history selection. UI screenshots use explicitly labeled synthetic fixtures, never persisted as phone benchmark history.",
+  "nativeWorkerTests": "Passed: persisted interruption recovery and quality rating, stop before/during bind, bounded GPU worker; main process survived full-GPU decoder timeouts.",
+  "fullHardwareSuiteExecuted": false,
+  "cpuControllerValidation": {
+    "runId": "3204bc4c-a908-4753-ab0d-18e2c3c05ab9",
+    "status": "CANCELED",
+    "plannedImages": 30,
+    "successfulImages": 1,
+    "pendingImages": 29,
+    "elapsedMs": 71109,
+    "result": {
+      "backend": "ARM CPU",
+      "category": "Fruit",
+      "createdAtEpochMs": 1792807001843,
+      "decodeAndSaveMs": 61384,
+      "denoiseMs": 7320,
+      "device": "Google Pixel 10 Pro Fold \u00b7 Tensor G5",
+      "height": 512,
+      "imagePath": "/data/data/dev.gemmabench/files/image-benchmarks/3204bc4c-a908-4753-ab0d-18e2c3c05ab9/images/1792807001843-SD_TURBO-CPU.png",
+      "loadAndEncodeMs": 1847,
+      "modelHashes": {
+        "sd_turbo-f16-q8_0.gguf": "d50be7655f0a554cf8041c145d88b210bd5f3c545423119dee62ae08cae51580"
+      },
+      "modelId": "SD_TURBO",
+      "modelName": "SD-Turbo",
+      "nativeMs": 70383,
+      "peakRssKb": 2486612,
+      "prompt": "One ripe red apple with a short stem and one green leaf, centered on a plain cream background. Clear educational illustration, bright natural colors, soft light, simple background. No writing, labels, watermark or collage.",
+      "runtime": "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
+      "seed": 42,
+      "steps": 1,
+      "totalMs": 70550,
+      "width": 512,
+      "word": "apple"
+    },
+    "note": "Real controller-started run stopped after first CPU image. Labeled VALIDATION SAMPLE on phone, pending words resumable."
+  },
+  "gpuHybridSmoke": {
+    "elapsedMs": 118225,
+    "result": {
+      "backend": "Vulkan GPU denoiser (text + VAE on CPU)",
+      "category": "Fruit",
+      "createdAtEpochMs": 1792806775134,
+      "decodeAndSaveMs": 60233,
+      "denoiseMs": 42488,
+      "device": "Google Pixel 10 Pro Fold \u00b7 Tensor G5",
+      "height": 512,
+      "imagePath": "/data/data/dev.gemmabench/files/image-benchmarks/smoke-f2d04391-7288-4b69-88df-3e8ee7f4d235/images/1792806775134-SD_TURBO-GPU.png",
+      "loadAndEncodeMs": 14757,
+      "modelHashes": {
+        "sd_turbo-f16-q8_0.gguf": "d50be7655f0a554cf8041c145d88b210bd5f3c545423119dee62ae08cae51580"
+      },
+      "modelId": "SD_TURBO",
+      "modelName": "SD-Turbo",
+      "nativeMs": 117319,
+      "peakRssKb": 2521760,
+      "prompt": "One ripe red apple with a short stem and one green leaf, centered on a plain cream background. Clear educational illustration, bright natural colors, soft light, simple background. No writing, labels, watermark or collage.",
+      "runtime": "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
+      "seed": 42,
+      "steps": 1,
+      "totalMs": 117475,
+      "width": 512,
+      "word": "apple"
+    },
+    "visualReview": "Recognizable red apple with leaves; no conspicuous text. Single native sample, not a 30-word aggregate."
+  },
+  "gpuFullDecoderTrials": {
+    "result": "Failed to finish decoding within 3-minute and 5-minute limits; worker termination preserved parent process.",
+    "decision": "GPU benchmark uses Vulkan denoising with CPU text encoding and VAE decoding; placement is explicit in UI, metadata and protocol."
+  },
+  "tpu": "Unavailable: no Tensor-compiled diffusion artifacts/backend installed."
+}

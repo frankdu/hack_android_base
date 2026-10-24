@@ -11,6 +11,8 @@ git submodule update --init third_party/stable-diffusion.cpp
 git -C third_party/stable-diffusion.cpp submodule update --init ggml
 ```
 
+At the end of **Images**, the **30-word generation benchmark** runs fixed vocabulary prompts across selected models and CPU/Vulkan GPU methods. It saves per-image results, average/mean, median, min/max timings, quality ratings and full run history, with Stop/resume and JSON/PNG exports. TPU is explicitly unavailable until compatible diffusion artifacts and a runtime are supplied. See [benchmark protocol, persistence and validation](docs/IMAGE_BENCHMARK.md). The first native build fetches pinned Vulkan/SPIR-V headers.
+
 The dictionary comes from `seed/kids_english_dictionary.txt`, packaged directly as an Android asset. `KidsEnglishDictionary` parses its blank-line-separated `Category: <name>` sections into Kotlin `WordCategory` objects, preserving the order and text of the items. Edit the seed file and rebuild to update the vocabulary.
 
 Each word has a **speaker** icon that uses the TTS engine selected in Settings and a **sparkle assistant** icon that starts a voice conversation about the word. Gemma introduces the concept, asks what the child wants to know, transcribes microphone audio locally and answers through the selected voice. Spoken text appears with word highlighting. Contextual Talk, Done, Cancel and Stop speaking controls and typed questions are supported. Install a multimodal Gemma model in Research Lab first. See [word assistant design, timing limits and validation](docs/WORD_ASSISTANT.md).

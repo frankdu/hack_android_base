@@ -59,7 +59,7 @@ git -C third_party/stable-diffusion.cpp submodule update --init ggml
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-The runtime is pinned at `95ff76230889898e1bf40058ba272a3699b50dc6`, with its pinned ggml submodule. Android NDK 27.0.11902837 and CMake 3.22.1 build the ARM64 JNI library. Video/server/WebP/WebM examples and GPU backends are disabled. No model weights or generated binaries are committed.
+The runtime is pinned at `95ff76230889898e1bf40058ba272a3699b50dc6`, with its pinned ggml submodule. Android NDK 27.0.11902837 and CMake 3.22.1 build the ARM64 JNI library. Video/server/WebP/WebM examples are disabled. The manual word playground uses CPU; the [30-word benchmark](IMAGE_BENCHMARK.md) additionally builds and exercises a Vulkan GPU method in an isolated worker process. No model weights or generated binaries are committed.
 
 The real-device opt-in test verifies staged model SHA-256, creates an actual image, checks dimensions and nonblank pixels, and persists timing/metadata. Pixel quality evaluation is a manual visual check; nonblank pixels do not establish concept accuracy.
 

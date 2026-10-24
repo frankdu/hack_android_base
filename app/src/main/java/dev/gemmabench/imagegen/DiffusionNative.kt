@@ -6,6 +6,10 @@ object DiffusionNative {
     fun interface Progress { fun onProgress(step: Int, total: Int, seconds: Float) }
     external fun resetStop()
     external fun requestStop()
-    external fun generate(model: String, encoder: String, vae: String, prompt: String,
-        flux: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress): IntArray?
+    external fun vulkanBuilt(): Boolean
+    external fun generateOnBackend(model: String, encoder: String, vae: String, prompt: String,
+        flux: Boolean, gpu: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress): IntArray?
+    fun generate(model: String, encoder: String, vae: String, prompt: String,
+        flux: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress): IntArray? =
+        generateOnBackend(model, encoder, vae, prompt, flux, false, steps, seed, threads, listener)
 }

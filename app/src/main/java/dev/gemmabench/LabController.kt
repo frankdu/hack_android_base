@@ -45,6 +45,8 @@ data class LabState(
     val preferredLlmFamily: ModelSlot? = null,
     val images: ImageLabState = ImageLabState(),
     val imageGenerating: Boolean = false,
+    val imageBenchmark: ImageBenchmarkState = ImageBenchmarkState(),
+    val imageBenchmarkRunning: Boolean = false,
 ) {
     val defaultLlm: LocalLlmChoice? get() = selectLocalLlm(models, tpuSupport, preferredLlmFamily)
     val downloadsActive: Boolean get() = downloads.any { it.active }
@@ -60,6 +62,17 @@ class LabController(private val app: Application) {
     private val runtime = LiteRtRuntime(app, storage::file)
     private val imageModels = ImageModelStore(app)
     private val imageGenerator = ImageGenerator(app, imageModels)
+    private val imageBenchmarkStore = ImageBenchmarkStore(app)
+    private val imageBenchmarkClient = ImageBenchmarkClient(app)
+    private val imageBenchmarkRunner = ImageBenchmarkRunner(imageBenchmarkStore, { run, sample ->
+        val started = android.os.SystemClock.elapsedRealtime()
+        val result = imageBenchmarkClient.generate(sample, imageBenchmarkStore.images(run.id), run.timeoutMinutes) { step, steps ->
+            mutable.update { it.copy(imageBenchmark = it.imageBenchmark.copy(step = step, steps = steps),
+                progress = if (step >= steps) "Benchmark · decoding ${sample.input.word} · ${sample.method.label}"
+                    else "Benchmark · ${sample.input.word} · ${sample.method.label} · step $step / $steps") }
+        }
+        result to (android.os.SystemClock.elapsedRealtime() - started)
+    }, imageBenchmarkClient::stop)
     private val photoLibrary = PhotoLibrary(app)
     private val photoCache by lazy { PhotoAnalysisCache(PhotoCacheDatabase.getInstance(app).photoAnalysis()) }
     private val peopleRepository by lazy { PeopleRepository(PhotoCacheDatabase.getInstance(app)) }
@@ -84,6 +97,7 @@ class LabController(private val app: Application) {
                     progress = "Ready · all inference stays on this device.",
                     downloads = downloads.statuses(),
                     images = ImageLabState(ready = imageModels.ready(), results = imageGenerator.results()),
+                    imageBenchmark = ImageBenchmarkState(runs = imageBenchmarkStore.runs(recover = true), methods = imageMethodSupport(app)),
                 ) }
             } catch (e: Exception) { fail(e) }
             finally { finish() }
@@ -92,6 +106,87 @@ class LabController(private val app: Application) {
                 try { refreshImageDownloads() } catch (e: Exception) { fail(e) }
                 delay(1000)
             }
+        }
+    }
+
+    private fun updateImageBenchmark(run: ImageBenchmarkRun) {
+        mutable.update { it.copy(imageBenchmark = it.imageBenchmark.copy(
+            runs = (listOf(run) + it.imageBenchmark.runs.filterNot { old -> old.id == run.id }).sortedByDescending { r -> r.startedAtEpochMs },
+            step = 0, steps = 0), progress = "Image benchmark · ${run.successful} generated · ${run.failed} failed · ${run.pending} remaining") }
+    }
+
+    fun startImageBenchmark(modelIds: Set<String>, methods: Set<ImageMethod>, timeoutMinutes: Int) {
+        if (!begin("Preparing 30-word image benchmark…", inference = true)) return
+        imageBenchmarkRunner.resetStop()
+        imageBenchmarkClient.resetStop()
+        mutable.update { it.copy(imageBenchmarkRunning = true) }
+        scope.launch {
+            try {
+                val selected = ImageModels.all.filter { it.id in modelIds }
+                require(selected.isNotEmpty() && selected.all { it.id in imageModels.ready() }) { "Download all selected image models first." }
+                val available = imageMethodSupport(app)
+                val requested = available.filter { it.method in methods || !it.available }
+                require(requested.any { it.available && it.method in methods }) { "Select an available image generation method." }
+                runtime.unload()
+                val now = System.currentTimeMillis()
+                val run = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
+                    "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · ${android.os.Build.SOC_MODEL} · ${android.os.Build.FINGERPRINT}",
+                    selected, requested, timeoutMinutes)
+                imageBenchmarkStore.save(run)
+                updateImageBenchmark(run)
+                mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = run.id, methods = available)) }
+                imageBenchmarkRunner.run(run.id, ::updateImageBenchmark)
+            } catch (e: Exception) { fail(e) }
+            finally {
+                mutable.update { it.copy(imageBenchmarkRunning = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = null)) }
+                finish()
+            }
+        }
+    }
+
+    fun resumeImageBenchmark(id: String) {
+        if (!begin("Resuming image benchmark…", inference = true)) return
+        imageBenchmarkRunner.resetStop()
+        imageBenchmarkClient.resetStop()
+        mutable.update { it.copy(imageBenchmarkRunning = true) }
+        scope.launch {
+            try {
+                val run = imageBenchmarkStore.load(id)
+                require(run.resumable) { "This run has no pending samples." }
+                val pending = run.samples.filter { it.status == ImageSampleStatus.PENDING }
+                require(pending.all { it.modelId in imageModels.ready() }) { "Download the run's pending models before resuming." }
+                val available = imageMethodSupport(app).filter { it.available }.map { it.method }.toSet()
+                require(pending.all { it.method in available }) { "A required method is unavailable on this device/build." }
+                require(run.device.endsWith(android.os.Build.FINGERPRINT)) { "The device build changed. Start a new comparison to keep measurements consistent." }
+                runtime.unload()
+                mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = id)) }
+                imageBenchmarkRunner.run(id, ::updateImageBenchmark)
+            } catch (e: Exception) { fail(e) }
+            finally {
+                mutable.update { it.copy(imageBenchmarkRunning = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = null)) }
+                finish()
+            }
+        }
+    }
+
+    fun rateImageBenchmark(id: String, sampleId: String, quality: Int?) {
+        if (state.value.busy) return
+        scope.launch {
+            try { updateImageBenchmark(imageBenchmarkStore.rate(id, sampleId, quality)) }
+            catch (e: Exception) { fail(e) }
+        }
+    }
+
+    fun exportImageBenchmark(uri: Uri, id: String) {
+        if (!begin("Exporting image benchmark…")) return
+        scope.launch {
+            try {
+                app.contentResolver.openOutputStream(uri, "wt").use {
+                    requireNotNull(it).write(imageBenchmarkStore.json(id).toByteArray(Charsets.UTF_8))
+                }
+                mutable.update { it.copy(progress = "Image benchmark exported.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
         }
     }
 
@@ -185,7 +280,8 @@ class LabController(private val app: Application) {
         if (!begin("Saving generated image…")) return
         scope.launch {
             try {
-                require(state.value.images.results.any { it.imagePath == path })
+                require(state.value.images.results.any { it.imagePath == path } ||
+                    state.value.imageBenchmark.runs.any { run -> run.samples.any { it.result?.imagePath == path } })
                 app.contentResolver.openOutputStream(uri, "wt").use { output ->
                     requireNotNull(output)
                     java.io.File(path).inputStream().use { it.copyTo(output) }
@@ -638,7 +734,8 @@ class LabController(private val app: Application) {
         if (!state.value.runningInference) return
         mutable.update { it.copy(stopRequested = true, progress = "Stopping… Waiting for the active native call to return.") }
         try {
-            if (state.value.imageGenerating) DiffusionNative.requestStop() else runner.stop()
+            if (state.value.imageBenchmarkRunning) imageBenchmarkRunner.stop()
+            else if (state.value.imageGenerating) DiffusionNative.requestStop() else runner.stop()
         } catch (e: Exception) { fail(e) }
     }
 
