@@ -11,6 +11,14 @@ data class ImageLocation(val repository: String, val revision: String, val remot
 }
 /** Retry a pinned mirror for missing/rejected upstream artifacts, not storage or Wi-Fi waits. */
 fun imageDownloadCanFallback(reason: Int) = reason in setOf(401, 403, 404, 408, 410, 429, 1002, 1004, 1005, 1008) || reason in 500..599
+
+/** DownloadManager's public PAUSED_* reasons (kept independent of Android for unit tests). */
+fun imageDownloadWaitingReason(reason: Int): String = when (reason) {
+    1 -> "Connection interrupted · Android will retry"
+    2 -> "Waiting for a network connection"
+    3 -> "Waiting for Wi-Fi"
+    else -> "Waiting for Android to resume the transfer"
+}
 data class ImageModel(val id: String, val name: String, val role: String, val steps: Int,
     val flux: Boolean, val description: String, val source: String, val license: String,
     val files: List<ImageFile>, val pipeline: ImagePipeline = ImagePipeline.NATIVE,

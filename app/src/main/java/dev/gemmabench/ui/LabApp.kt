@@ -75,7 +75,7 @@ fun LabApp(state: LabState, controller: LabController) {
                 state.device?.let {
                     Text("${it.model} · ${it.soc} · Android ${it.androidRelease}\n${it.totalRamMb / 1024.0 format 1} GiB RAM · LiteRT-LM ${it.runtimeVersion}", style = MaterialTheme.typography.bodySmall)
                 }
-                StatusCard(state, controller)
+                StatusCard(state, controller::stop)
                 when (tab) {
                     0 -> ModelsPage(state, controller)
                     1 -> RunPage(state, controller, playground = false)
@@ -96,19 +96,19 @@ fun LabApp(state: LabState, controller: LabController) {
 }
 
 @Composable
-private fun StatusCard(state: LabState, controller: LabController) {
+internal fun StatusCard(state: LabState, onStop: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Ink)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if ((state.downloadsActive || state.images.downloading) && !state.busy) "Model downloads in progress · you can leave the app." else state.progress,
+            Text(if (state.modelDownloadsActive) "Model downloads in progress · you can leave the app." else state.progress,
                 color = Color.White, style = MaterialTheme.typography.bodyMedium)
             val photoProgress = state.photoBatchProgress
-            if (state.busy && photoProgress != null) {
+            if (state.busy && !state.modelDownloadsActive && photoProgress != null) {
                 LinearProgressIndicator(progress = { photoProgress.fraction }, modifier = Modifier.fillMaxWidth(),
                     color = Mint, trackColor = Color(0xFF39584D))
                 Text(photoProgress.label, color = Color.White, style = MaterialTheme.typography.bodySmall)
-            } else if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Mint, trackColor = Color(0xFF39584D))
+            } else if (state.busy && !state.modelDownloadsActive) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Mint, trackColor = Color(0xFF39584D))
             if (state.runningInference) {
-                OutlinedButton(onClick = controller::stop, enabled = !state.stopRequested,
+                OutlinedButton(onClick = onStop, enabled = !state.stopRequested,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Mint)) {
                     Text(if (state.stopRequested) "Stop requested" else "Stop run")
                 }

@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ImageSourceAndBackendTest {
+    @Test fun pausedDownloadsDistinguishRetryFromNetworkAndWifiWaits() {
+        assertEquals("Connection interrupted · Android will retry", imageDownloadWaitingReason(1))
+        assertEquals("Waiting for a network connection", imageDownloadWaitingReason(2))
+        assertEquals("Waiting for Wi-Fi", imageDownloadWaitingReason(3))
+        assertEquals("Waiting for Android to resume the transfer", imageDownloadWaitingReason(4))
+    }
+
     @Test fun activeCatalogHasFourLiteRtModelsAndRetainsIrisOnlyForHistoricalLookup() {
         assertEquals(setOf("FLUX_KLEIN_LITERT", "BONSAI_LITERT", "SD_TURBO_LITERT", "SDXL_TURBO_LITERT"), ImageModels.liteRt.map { it.id }.toSet())
         assertEquals(ImagePipeline.IRIS_LITERT, ImageModels.get("IRIS_LITERT").pipeline)

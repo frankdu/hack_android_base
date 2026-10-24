@@ -39,6 +39,7 @@ data class LabState(
     val tpuSupport: TpuSupport = TpuSupport(),
     val engineRetained: Boolean = false,
     val downloads: List<ModelDownload> = emptyList(),
+    val imageDownloadVerification: String? = null,
     val photos: PhotoDemoState = PhotoDemoState(),
     val photoBatchProgress: PhotoBatchProgress? = null,
     val people: PeopleState = PeopleState(),
@@ -50,7 +51,8 @@ data class LabState(
 ) {
     val defaultLlm: LocalLlmChoice? get() = selectLocalLlm(models, tpuSupport, preferredLlmFamily)
     val downloadsActive: Boolean get() = downloads.any { it.active }
-    val unavailable: Boolean get() = busy || downloadsActive || images.downloading
+    val modelDownloadsActive: Boolean get() = downloadsActive || images.downloading || imageDownloadVerification != null
+    val unavailable: Boolean get() = busy || modelDownloadsActive
 }
 
 /** Application-owned worker survives rotation. JNI resources are only closed on this worker. */
@@ -80,6 +82,8 @@ class LabController(private val app: Application) {
     private val peopleRefreshGeneration = java.util.concurrent.atomic.AtomicInteger()
     private val runner = BenchmarkRunner(runtime, storage::device, storage::snapshot)
     private val mutable = MutableStateFlow(LabState(busy = true))
+    // Reserve the worker during a poll without publishing a foreground action to Compose.
+    private var refreshingImageDownloads = false
     val state = mutable.asStateFlow()
 
     init {
@@ -222,17 +226,25 @@ class LabController(private val app: Application) {
     private fun refreshImageDownloads() {
         synchronized(this) {
             if (state.value.busy) return
-            mutable.update { it.copy(busy = true) }
+            refreshingImageDownloads = true
         }
         try {
-            val transfers = imageModels.refresh { filename ->
-                mutable.update { it.copy(busy = true, progress = "Verifying $filename…") }
+            val transfers = imageModels.refresh { transfer ->
+                mutable.update { it.copy(imageDownloadVerification = transfer.filename,
+                    images = it.images.copy(transfers = it.images.transfers.filterNot { old ->
+                        old.modelId == transfer.modelId && old.filename == transfer.filename
+                    } + transfer)) }
             }
             val ready = imageModels.ready()
             mutable.update { it.copy(imageBenchmark = it.imageBenchmark.copy(methods = imageMethodSupport(app)), images = it.images.copy(ready = ready, transfers = transfers),
                 progress = if (ready != it.images.ready && transfers.none { t -> t.active })
                     "Image model files verified and ready." else it.progress) }
-        } finally { finish() }
+        } finally {
+            synchronized(this) {
+                mutable.update { it.copy(imageDownloadVerification = null) }
+                refreshingImageDownloads = false
+            }
+        }
     }
 
     fun downloadImageModel(id: String, wifiOnly: Boolean) {
@@ -329,7 +341,7 @@ class LabController(private val app: Application) {
     }
 
     @Synchronized private fun begin(message: String, inference: Boolean = false): Boolean {
-        if (mutable.value.unavailable) return false
+        if (refreshingImageDownloads || mutable.value.unavailable) return false
         mutable.update { it.copy(
             busy = true, runningInference = inference, stopRequested = false,
             progress = message, error = null, current = null, output = "",
@@ -364,9 +376,9 @@ class LabController(private val app: Application) {
 
     fun cancelVoiceInference() { runtime.requestStop() }
 
-    fun downloadModel(slot: ModelSlot, wifiOnly: Boolean) {
+    @Synchronized fun downloadModel(slot: ModelSlot, wifiOnly: Boolean) {
         // More than one system download may run; native model operations stay serialized.
-        if (state.value.busy || state.value.downloads.any { it.spec.slot == slot && it.active }) return
+        if (refreshingImageDownloads || state.value.busy || state.value.downloads.any { it.spec.slot == slot && it.active }) return
         mutable.update { it.copy(busy = true, error = null, progress = "Starting ${slot.label} download…") }
         scope.launch {
             try {

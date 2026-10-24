@@ -96,7 +96,7 @@ class ImageModelStore(private val context: Context) {
     }
 
     /** Runs on the Lab worker. Never performs network probes from a Compose render. */
-    fun refresh(onVerifying: (String) -> Unit): List<ImageTransfer> {
+    fun refresh(onVerifying: (ImageTransfer) -> Unit): List<ImageTransfer> {
         val result = mutableListOf<ImageTransfer>()
         for (ticket in tickets()) {
             val model = ImageModels.get(ticket.modelId)
@@ -120,7 +120,7 @@ class ImageModelStore(private val context: Context) {
                 if (state == DownloadManager.STATUS_SUCCESSFUL) {
                     var integrityVerified = false
                     try {
-                        onVerifying(spec.filename)
+                        onVerifying(status(bytes, "Verifying checksum"))
                         val source = partial(spec).takeIf { it.isFile } ?: file(spec)
                         ModelFileVerifier.verify(source, spec.bytes, spec.sha256)
                         integrityVerified = true
@@ -152,9 +152,9 @@ class ImageModelStore(private val context: Context) {
                     if (error != null) markFailed(ticket, error)
                     result += status(bytes, when (state) {
                         DownloadManager.STATUS_RUNNING -> "Downloading"
-                        DownloadManager.STATUS_PAUSED -> "Waiting for network / Wi-Fi (reason $reason)"
+                        DownloadManager.STATUS_PAUSED -> imageDownloadWaitingReason(reason)
                         DownloadManager.STATUS_FAILED -> "Failed"
-                        else -> "Queued"
+                        else -> "Queued by Android"
                     }, error)
                 }
             }
@@ -167,7 +167,8 @@ class ImageModelStore(private val context: Context) {
             if (previous != null && preferences.getString("bundle-stamp-${model.id}", null) == stamp) {
                 result += ImageTransfer(model.id, "manifest.json", 0, 1, "Verification failed", previous)
             } else try {
-                onVerifying("${model.name} bundle"); bundles.verifyModel(model.id)
+                onVerifying(ImageTransfer(model.id, "manifest.json", 0, 1, "Verifying model bundle"))
+                bundles.verifyModel(model.id)
                 preferences.edit().remove("bundle-error-${model.id}").remove("bundle-stamp-${model.id}").apply()
             } catch (e: Exception) {
                 val message = e.message ?: "Invalid image bundle"
