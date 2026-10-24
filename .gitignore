@@ -10,3 +10,8 @@ local.properties
 .DS_Store
 artifacts/
 app/src/main/jniLibs/
+
+# Local Python conversion environments and bytecode
+.venv-image-litert/
+__pycache__/
+*.pyc

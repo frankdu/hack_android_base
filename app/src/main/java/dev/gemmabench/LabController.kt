@@ -123,15 +123,21 @@ class LabController(private val app: Application) {
         scope.launch {
             try {
                 val selected = ImageModels.all.filter { it.id in modelIds }
-                require(selected.isNotEmpty() && selected.all { it.id in imageModels.ready() }) { "Download all selected image models first." }
+                require(selected.isNotEmpty()) { "Select at least one model." }
                 val available = imageMethodSupport(app)
                 val requested = available.filter { it.method in methods || !it.available }
                 require(requested.any { it.available && it.method in methods }) { "Select an available image generation method." }
+                require(selected.all { model -> requested.any { it.method in methods && it.supports(model.id) } }) {
+                    "Each selected model needs a verified bundle for at least one selected method."
+                }
                 runtime.unload()
                 val now = System.currentTimeMillis()
-                val run = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
+                val plan = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · ${android.os.Build.SOC_MODEL} · ${android.os.Build.FINGERPRINT}",
                     selected, requested, timeoutMinutes)
+                val bundleHashes = selected.filter { model -> plan.samples.any { it.modelId == model.id && it.method == ImageMethod.TPU } }
+                    .associate { model -> model.id to LiteRtImageBundles(app).load(model.id).first.let { LiteRtImageBundles.sha256(java.io.File(it, "manifest.json")) } }
+                val run = plan.copy(samples = plan.samples.map { sample -> sample.copy(bundleManifestSha256 = bundleHashes[sample.modelId].takeIf { sample.method == ImageMethod.TPU }) })
                 imageBenchmarkStore.save(run)
                 updateImageBenchmark(run)
                 mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = run.id, methods = available)) }
@@ -154,9 +160,14 @@ class LabController(private val app: Application) {
                 val run = imageBenchmarkStore.load(id)
                 require(run.resumable) { "This run has no pending samples." }
                 val pending = run.samples.filter { it.status == ImageSampleStatus.PENDING }
-                require(pending.all { it.modelId in imageModels.ready() }) { "Download the run's pending models before resuming." }
-                val available = imageMethodSupport(app).filter { it.available }.map { it.method }.toSet()
-                require(pending.all { it.method in available }) { "A required method is unavailable on this device/build." }
+                val available = imageMethodSupport(app)
+                require(pending.all { sample -> available.any { it.method == sample.method && it.supports(sample.modelId) } }) { "A required method is unavailable on this device/build." }
+                pending.filter { it.method == ImageMethod.TPU }.distinctBy { it.modelId }.forEach { sample ->
+                    val directory = LiteRtImageBundles(app).load(sample.modelId).first
+                    require(sample.bundleManifestSha256 == LiteRtImageBundles.sha256(java.io.File(directory, "manifest.json"))) {
+                        "The TPU bundle changed. Start a new benchmark to preserve comparable results."
+                    }
+                }
                 require(run.device.endsWith(android.os.Build.FINGERPRINT)) { "The device build changed. Start a new comparison to keep measurements consistent." }
                 runtime.unload()
                 mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = id)) }
@@ -190,6 +201,17 @@ class LabController(private val app: Application) {
         }
     }
 
+    fun verifyImageTpuBundles() {
+        if (!begin("Verifying LiteRT image bundles…")) return
+        scope.launch {
+            try {
+                val message = LiteRtImageBundles(app).verify()
+                mutable.update { it.copy(progress = message, imageBenchmark = it.imageBenchmark.copy(methods = imageMethodSupport(app))) }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
     private fun refreshImageDownloads() {
         synchronized(this) {
             if (state.value.busy) return
@@ -200,7 +222,7 @@ class LabController(private val app: Application) {
                 mutable.update { it.copy(busy = true, progress = "Verifying $filename…") }
             }
             val ready = imageModels.ready()
-            mutable.update { it.copy(images = it.images.copy(ready = ready, transfers = transfers),
+            mutable.update { it.copy(imageBenchmark = it.imageBenchmark.copy(methods = imageMethodSupport(app)), images = it.images.copy(ready = ready, transfers = transfers),
                 progress = if (ready != it.images.ready && transfers.none { t -> t.active })
                     "Image model files verified and ready." else it.progress) }
         } finally { finish() }
@@ -232,8 +254,9 @@ class LabController(private val app: Application) {
         }
     }
 
-    fun generateWordImage(id: String, word: String, category: String, prompt: String, seed: Long, steps: Int) {
-        if (!begin("Loading image model on ARM CPU…", inference = true)) return
+    fun generateWordImage(id: String, word: String, category: String, prompt: String, seed: Long, steps: Int, method: ImageMethod = ImageMethod.CPU) {
+        if (!begin("Loading image model · ${method.label}…", inference = true)) return
+        imageBenchmarkClient.resetStop()
         try { DiffusionNative.resetStop() }
         catch (e: LinkageError) {
             mutable.update { it.copy(error = "Native image runtime unavailable: ${e.message}") }
@@ -245,11 +268,17 @@ class LabController(private val app: Application) {
             try {
                 runtime.unload()
                 mutable.update { it.copy(engineRetained = false) }
-                val result = imageGenerator.generate(ImageModels.get(id), word, category, prompt, seed, steps) { step, total ->
-                    mutable.update { it.copy(progress = if (step >= total) "Decoding and saving image… · ARM CPU"
-                        else "Generating image · step $step / $total · ARM CPU",
+                val onProgress: (Int, Int) -> Unit = { step, total ->
+                    mutable.update { it.copy(progress = if (step >= total) "Decoding and saving image… · ${method.label}"
+                        else "Generating image · step $step / $total · ${method.label}",
                         images = it.images.copy(step = step, totalSteps = total)) }
                 }
+                val model = ImageModels.get(id)
+                val result = if (method == ImageMethod.TPU) {
+                    val input = ImageBenchmarkPrompt(word, category, prompt, seed)
+                    val sample = ImageBenchmarkSample("manual", id, model.name, method, input, steps)
+                    imageBenchmarkClient.generate(sample, java.io.File(app.filesDir, "word-images"), 20, onProgress)
+                } else imageGenerator.generate(model, word, category, prompt, seed, steps, method, progress = onProgress)
                 mutable.update { it.copy(images = it.images.copy(results = (listOf(result) + it.images.results).take(24)),
                     progress = "${result.modelName} image saved · ${result.totalMs / 1000.0} s including model load.") }
             } catch (_: CancellationException) {
@@ -735,7 +764,10 @@ class LabController(private val app: Application) {
         mutable.update { it.copy(stopRequested = true, progress = "Stopping… Waiting for the active native call to return.") }
         try {
             if (state.value.imageBenchmarkRunning) imageBenchmarkRunner.stop()
-            else if (state.value.imageGenerating) DiffusionNative.requestStop() else runner.stop()
+            else if (state.value.imageGenerating) {
+                imageBenchmarkClient.stop()
+                DiffusionNative.requestStop()
+            } else runner.stop()
         } catch (e: Exception) { fail(e) }
     }
 

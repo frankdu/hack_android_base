@@ -34,6 +34,8 @@ fun ImageLabPage(state: LabState, controller: LabController) {
     var prompt by rememberSaveable { mutableStateOf(WordImagePrompt.build("apple", "Fruit")) }
     var seed by rememberSaveable { mutableStateOf("42") }
     var steps by rememberSaveable { mutableIntStateOf(1) }
+    var methodName by rememberSaveable { mutableStateOf(ImageMethod.CPU.name) }
+    val method = ImageMethod.valueOf(methodName)
     var wifiOnly by rememberSaveable { mutableStateOf(true) }
     var research by rememberSaveable { mutableStateOf(false) }
     var modelsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -144,17 +146,28 @@ fun ImageLabPage(state: LabState, controller: LabController) {
     Text("Category guides the scene: an action is performed, an emotion is expressed, and an object is shown clearly. Review ambiguous words and generated pictures before showing children.", style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(seed, { seed = it.take(19) }, label = { Text("Seed · use the same seed for comparisons") }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+    Text("Run on", style = MaterialTheme.typography.titleMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(ImageMethod.CPU, ImageMethod.TPU).forEach { candidate ->
+            val support = state.imageBenchmark.methods.firstOrNull { it.method == candidate }
+            FilterChip(selected = method == candidate,
+                onClick = { methodName = candidate.name; if (candidate == ImageMethod.TPU) steps = model.steps },
+                enabled = !state.busy && support?.supports(selected) == true,
+                label = { Text(if (candidate == ImageMethod.TPU) "TPU · LiteRT experimental" else "CPU") })
+        }
+    }
+    Text("TPU needs a verified bundle compiled for this phone. Its step count is fixed at export. Use the section below to verify staged bundles and compare CPU, GPU and TPU.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(1, 2, 4).forEach { count ->
             FilterChip(selected = steps == count, onClick = { steps = count }, label = { Text("$count step${if (count == 1) "" else "s"}") },
-                enabled = !state.busy && (!model.flux || count == 4))
+                enabled = !state.busy && (!model.flux || count == 4) && (method != ImageMethod.TPU || count == model.steps))
         }
     }
     val seedValue = seed.toLongOrNull()?.takeIf { it >= 0 }
     if (seedValue == null) Text("Enter a non-negative whole-number seed.", color = MaterialTheme.colorScheme.error)
-    val ready = selected in state.images.ready
-    if (!ready) Text("Download ${model.name} above to enable image generation.", style = MaterialTheme.typography.bodySmall)
-    Button(onClick = { controller.generateWordImage(selected, word, category, prompt, requireNotNull(seedValue), steps) },
+    val ready = state.imageBenchmark.methods.any { it.method == method && it.supports(selected) }
+    if (!ready) Text("Install and verify ${model.name} for ${method.label} to enable generation.", style = MaterialTheme.typography.bodySmall)
+    Button(onClick = { controller.generateWordImage(selected, word, category, prompt, requireNotNull(seedValue), steps, method) },
         enabled = !state.unavailable && ready && word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank() && seedValue != null,
         modifier = Modifier.fillMaxWidth()) { Text("Generate with ${model.name}") }
     if (state.imageGenerating) {

@@ -48,10 +48,11 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ImageModels.all.forEach { model ->
             FilterChip(selected = model.id in models, onClick = { models = if (model.id in models) models - model.id else models + model.id },
-                enabled = !state.busy && model.id in state.images.ready, label = { Text("${model.name} · ${model.steps} step${if (model.steps == 1) "" else "s"}") })
+                enabled = !state.busy && benchmark.methods.any { it.supports(model.id) }, label = { Text("${model.name} · ${model.steps} step${if (model.steps == 1) "" else "s"}") })
         }
     }
-    if (models.any { it !in state.images.ready }) Text("Download the selected model above to enable the benchmark.", style = MaterialTheme.typography.bodySmall)
+    Text("TPU bundles are separate from the CPU/GPU downloads. Stage an exported Tensor G5/G6 bundle with scripts/push-image-litert.py, then verify it here. Verification checks hashes and tokenizer parity; generation checks runtime compatibility.", style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = controller::verifyImageTpuBundles, enabled = !state.unavailable) { Text("Verify staged TPU bundles") }
     Text("Generation methods", style = MaterialTheme.typography.titleMedium)
     benchmark.methods.forEach { support ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -65,7 +66,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
             }
         }
     }
-    Text("A GPU failure skips the remaining GPU jobs in that run; CPU jobs can continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
+    Text("A GPU failure skips remaining GPU jobs. A TPU failure skips the affected model’s TPU jobs. Other methods continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
     Text("Per-image timeout", style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(5, 10, 20).forEach { minutes -> FilterChip(selected = timeout == minutes,
@@ -77,10 +78,12 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         SelectionContainer { Text(input.prompt, style = MaterialTheme.typography.bodySmall) }
     }
     val runnableMethods = benchmark.methods.filter { it.available && it.method.name in methods }.map { it.method }.toSet()
-    val jobs = models.size * runnableMethods.size * ImageBenchmarkSuite.prompts.size
-    Text("$jobs images planned · 30 words × ${models.size} model(s) × ${runnableMethods.size} method(s). This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
+    val combinations = models.sumOf { id -> benchmark.methods.count { it.method in runnableMethods && it.supports(id) } }
+    val jobs = combinations * ImageBenchmarkSuite.prompts.size
+    Text("Only installed model/method combinations run. TPU uses separately converted weights and sampler graphs, so a CPU/GPU/TPU comparison includes runtime and numerical differences as well as hardware. Review each image’s backend and quality score.", style = MaterialTheme.typography.bodySmall)
+    Text("$jobs images planned · 30 words × $combinations installed model/method combinations. This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
     Button(onClick = { viewedId = ""; controller.startImageBenchmark(models, runnableMethods, timeout) },
-        enabled = !state.unavailable && models.isNotEmpty() && models.all { it in state.images.ready } && runnableMethods.isNotEmpty(),
+        enabled = !state.unavailable && models.isNotEmpty() && models.all { id -> benchmark.methods.any { it.method in runnableMethods && it.supports(id) } } && runnableMethods.isNotEmpty(),
         modifier = Modifier.fillMaxWidth()) { Text("Run 30-word benchmark") }
     if (state.imageBenchmarkRunning) {
         val active = benchmark.runs.firstOrNull { it.id == benchmark.activeRunId }

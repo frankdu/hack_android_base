@@ -76,3 +76,7 @@ All 74 host tests, Android lint and debug/test APK builds pass. The host runner 
 On Pixel 10 Pro Fold / Tensor G5, a real SD-Turbo hybrid GPU sample generated a recognizable 512×512 apple in **118.225 s end-to-end / 117.475 s generation**. Its phases were **14.757 s loading/encoding, 42.488 s denoising, 60.233 s decoding/saving**. The GPU denoiser completed; full-GPU VAE trials did not finish within 3- and 5-minute limits, so the deployed GPU method keeps decoding on CPU. This sample demonstrates execution, not a general GPU speedup. SDXL/FLUX GPU execution has not been established by this SD-Turbo smoke test.
 
 The real application controller also started the 30-word CPU plan and stopped after its first image: **71.109 s end-to-end / 70.550 s generation**, with one successful image and 29 jobs pending. That labeled **VALIDATION SAMPLE** run, its image and its resumable pending jobs remain on the phone. The full hours-long suite was not run during development. Exact evidence is recorded in [IMAGE_BENCHMARK_VALIDATION.json](IMAGE_BENCHMARK_VALIDATION.json).
+
+## Experimental LiteRT Tensor TPU workflow
+
+See [IMAGE_TPU.md](IMAGE_TPU.md) for the separate compiled-bundle backend, Hugging Face download/export/AOT/publishing scripts, required Linux/SDK setup, and current validation limits. No diffusion TPU performance claim has been established.

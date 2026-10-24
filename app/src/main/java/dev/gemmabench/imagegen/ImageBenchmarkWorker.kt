@@ -37,7 +37,12 @@ class ImageBenchmarkWorkerService : Service() {
                         val model = ImageModels.get(requireNotNull(request.getString("model")))
                         val method = ImageMethod.valueOf(requireNotNull(request.getString("method")))
                         val dir = File(requireNotNull(request.getString("directory"))).canonicalFile
-                        require(dir.path.startsWith(File(filesDir, "image-benchmarks").canonicalPath + File.separator))
+                        val benchmarkRoot = File(filesDir, "image-benchmarks").canonicalPath + File.separator
+                        require(dir.path.startsWith(benchmarkRoot) || dir == File(filesDir, "word-images").canonicalFile)
+                        request.getString("bundleManifestSha256")?.let { expected ->
+                            val bundle = LiteRtImageBundles(this).load(model.id).first
+                            require(expected == LiteRtImageBundles.sha256(File(bundle, "manifest.json"))) { "TPU bundle changed after this run was planned." }
+                        }
                         DiffusionNative.resetStop()
                         val result = ImageGenerator(this, ImageModelStore(this)).generate(model,
                             requireNotNull(request.getString("word")), requireNotNull(request.getString("category")),
@@ -116,6 +121,7 @@ class ImageBenchmarkClient(private val context: Context) {
                                 replyTo = reply
                                 data = Bundle().apply {
                                     putString("model", sample.modelId); putString("method", sample.method.name)
+                                    sample.bundleManifestSha256?.let { putString("bundleManifestSha256", it) }
                                     putString("word", sample.input.word); putString("category", sample.input.category)
                                     putString("prompt", sample.input.prompt); putLong("seed", sample.input.seed)
                                     putInt("steps", sample.steps); putString("directory", directory.path)
@@ -154,13 +160,20 @@ fun imageMethodSupport(context: Context): List<ImageMethodSupport> {
     val cpu = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     val gpu = context.packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x00401000)
     val built = runCatching { DiffusionNative.vulkanBuilt() }.getOrDefault(false)
+    val bundles = LiteRtImageBundles(context)
+    val installed = bundles.installed()
+    val gguf = ImageModelStore(context).ready()
     return listOf(
-        ImageMethodSupport(ImageMethod.CPU, cpu, if (cpu) "ARM64 native runtime" else "Requires ARM64"),
+        ImageMethodSupport(ImageMethod.CPU, cpu, if (cpu) "ARM64 native runtime" else "Requires ARM64", gguf),
         ImageMethodSupport(ImageMethod.GPU, gpu && built, when {
             !built -> "Vulkan is not included in this build."
             !gpu -> "Device does not advertise Vulkan 1.1 compute support."
             else -> "Experimental Vulkan: driver and model compatibility are checked during generation. No automatic CPU rerouting."
-        }),
-        ImageMethodSupport(ImageMethod.TPU, false, "No Tensor G5/G6 compiled diffusion artifacts or diffusion TPU backend are installed. Gemma TPU models cannot run this image pipeline."),
+        }, gguf),
+        ImageMethodSupport(ImageMethod.TPU, installed.isNotEmpty(), when {
+            bundles.soc == null -> "Requires Google Tensor G5/G6."
+            installed.isEmpty() -> "Stage matching LiteRT AOT bundles, then verify below. GGUF and Gemma files cannot run this pipeline."
+            else -> "Verified bundles: ${installed.joinToString()}. Device execution and image quality remain experimental."
+        }, installed),
     )
 }

@@ -92,6 +92,26 @@ class ImageBenchmarkTest {
         assertEquals(ImageRunStatus.COMPLETED, repo.run.status)
     }
 
+    @Test fun tpuFailureSkipsOnlyThatModelAndNeverCreatesCpuResults() = runBlocking {
+        val models = ImageModels.all.take(2)
+        val methods = listOf(ImageMethodSupport(ImageMethod.CPU, true, "CPU"), ImageMethodSupport(ImageMethod.TPU, true, "AOT"))
+        val repo = MemoryRepository(newImageBenchmarkRun("tpu-failure", 10, "test", models, methods, 20))
+        var failures = 0
+        val runner = ImageBenchmarkRunner(repo, { _, sample ->
+            if (sample.method == ImageMethod.TPU && sample.modelId == "SD_TURBO") {
+                failures++; throw IllegalStateException("NPU invocation failed")
+            }
+            result(sample) to 100L
+        }, {}, betweenSamples = {})
+        runner.resetStop(); runner.run(repo.run.id) {}
+        assertEquals(1, failures)
+        assertEquals(90, repo.run.successful)
+        assertEquals(1, repo.run.failed)
+        assertEquals(29, repo.run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        assertNull(repo.run.groups().first { it.method == ImageMethod.TPU && it.modelId == "SD_TURBO" }.speed)
+        assertEquals(30, repo.run.groups().first { it.method == ImageMethod.TPU && it.modelId == "SDXL_TURBO" }.speed!!.count)
+    }
+
     @Test fun cancelAndResumeKeepCompletedSamplesAndDoNotRegenerateThem() = runBlocking {
         val repo = MemoryRepository(newImageBenchmarkRun("resume-run", 10, "test", listOf(ImageModels.get("SD_TURBO")), methods.take(1), 20))
         val called = mutableListOf<String>()

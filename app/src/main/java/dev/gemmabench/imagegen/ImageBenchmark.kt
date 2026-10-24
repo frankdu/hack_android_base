@@ -42,9 +42,12 @@ object ImageBenchmarkSuite {
 enum class ImageMethod(val label: String, val detail: String) {
     CPU("CPU", "ARM CPU · up to 4 threads"),
     GPU("GPU", "Vulkan denoiser · text encoder and VAE on CPU · experimental"),
-    TPU("TPU", "Google Tensor TPU"),
+    TPU("TPU", "LiteRT Tensor TPU + CPU host/unsupported partitions · experimental"),
 }
-data class ImageMethodSupport(val method: ImageMethod, val available: Boolean, val reason: String)
+data class ImageMethodSupport(val method: ImageMethod, val available: Boolean, val reason: String,
+    val modelIds: Set<String>? = null) {
+    fun supports(modelId: String) = available && (modelIds == null || modelId in modelIds)
+}
 data class ImageBenchmarkState(val runs: List<ImageBenchmarkRun> = emptyList(),
     val methods: List<ImageMethodSupport> = emptyList(), val activeRunId: String? = null,
     val step: Int = 0, val steps: Int = 0)
@@ -54,14 +57,14 @@ data class ImageBenchmarkSample(
     val id: String, val modelId: String, val modelName: String, val method: ImageMethod,
     val input: ImageBenchmarkPrompt, val steps: Int, val status: ImageSampleStatus = ImageSampleStatus.PENDING,
     val result: ImageResult? = null, val elapsedMs: Long? = null, val error: String? = null,
-    val quality: Int? = null,
+    val quality: Int? = null, val bundleManifestSha256: String? = null,
 )
 data class ImageBenchmarkRun(
     val id: String, val startedAtEpochMs: Long, val updatedAtEpochMs: Long,
     val device: String, val suiteVersion: String, val samples: List<ImageBenchmarkSample>,
     val skippedMethods: List<ImageMethodSupport>, val timeoutMinutes: Int,
     val status: ImageRunStatus = ImageRunStatus.RUNNING, val finishedAtEpochMs: Long? = null,
-    val protocol: String = "512x512; fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE; fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save; no warm-up excluded; 1s between samples",
+    val protocol: String = "512x512; fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE, TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save; no warm-up excluded; 1s between samples",
 ) {
     val successful get() = samples.count { it.status == ImageSampleStatus.SUCCESS }
     val failed get() = samples.count { it.status == ImageSampleStatus.FAILED }
@@ -94,7 +97,8 @@ fun newImageBenchmarkRun(id: String, now: Long, device: String, models: List<Ima
     require(methods.any { it.available } && methods.distinctBy { it.method }.size == methods.size)
     require(timeoutMinutes in 1..60)
     // Alternate method/model order by word to reduce a fixed CPU-first warming bias.
-    val combinations = models.flatMap { model -> methods.filter { it.available }.map { model to it.method } }
+    val combinations = models.flatMap { model -> methods.filter { it.supports(model.id) }.map { model to it.method } }
+    require(combinations.isNotEmpty()) { "No selected model/method combination is installed." }
     val samples = ImageBenchmarkSuite.prompts.flatMapIndexed { index, input ->
         val ordered = if (index % 2 == 0) combinations else combinations.reversed()
         ordered.map { (model, method) -> ImageBenchmarkSample("${model.id}-${method.name}-$index", model.id,

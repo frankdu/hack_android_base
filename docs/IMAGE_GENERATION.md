@@ -102,3 +102,7 @@ Validation completed:
 - ARM emulator navigation and Images layout were visually reviewed. Choosing **jump / Actions** produced an action prompt; typing **swim** regenerated the prompt while preserving the category.
 
 The final prototype is installed on the connected phone with all three model bundles verified and the three sample results retained. The phone was locked during final UI review, which used the emulator; model timings above are from the physical Pixel.
+
+## Experimental LiteRT Tensor TPU workflow
+
+See [IMAGE_TPU.md](IMAGE_TPU.md) for the separate compiled-bundle backend, Hugging Face download/export/AOT/publishing scripts, required Linux/SDK setup, and current validation limits. No diffusion TPU performance claim has been established.

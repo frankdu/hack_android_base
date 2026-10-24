@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-23",
+  "status": "experimental_integration_prepared_conversion_pending",
+  "models": ["SD_TURBO", "SDXL_TURBO", "FLUX_KLEIN"],
+  "android_runtime": "Google LiteRT 2.3.0; matching Google Tensor dispatch AAR",
+  "jvm_tests": {"passed": 80, "failed": 0, "includes": ["CLIP/Qwen real tokenizer fixtures", "per-model/backend scheduling", "TPU failure isolation", "SoC matching and path containment", "old JSON compatibility"]},
+  "python_tests": {"passed": 6, "failed": 0, "scope": "FX sharding/planning with a test converter, scheduler numerical parity with Diffusers, publishing dry-run/hash checks, unsupported-host refusal", "not_evidence_of_litert_conversion": true},
+  "android_build": "debug APK and instrumented APK built; lint passed",
+  "pixel_smoke": {
+    "device": "Pixel 10 Pro Fold",
+    "soc": "Tensor G5",
+    "test": "LiteRtImageInstrumentedTest.liteRtDispatchAndMissingBundleAreReportedHonestly",
+    "result": "passed",
+    "available_accelerators": ["NPU", "CPU"],
+    "diffusion_invoked": false,
+    "app_data_preserved": true
+  },
+  "hub_discovery": {
+    "query_limit_per_model_name": 100,
+    "ready_litert_match": "litert-community/FLUX.2-klein-4B-LiteRT",
+    "revision": "223f4c989d8e5275fa8e695ddebea8d7ac7bada6",
+    "community_resolution": [256, 256],
+    "published_google_tensor_tpu_validation_found": false
+  },
+  "source_weights_downloaded": false,
+  "full_model_litert_exports_completed": [],
+  "google_tensor_aot_compilations_completed": [],
+  "diffusion_tpu_device_runs_completed": [],
+  "hugging_face_uploads": [],
+  "required_setup": ["native Linux x86_64 conversion host with sufficient RAM/disk", "Google Tensor SDK beta compiler artifact", "local HF login and target repository when publishing"]
+}

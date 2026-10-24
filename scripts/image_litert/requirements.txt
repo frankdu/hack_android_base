@@ -1,0 +1,12 @@
+# Ubuntu 22.04 x86_64, Python 3.11/3.12. SDK plugin is installed separately.
+# Versions inspected 2026-10-23; the actual large-model conversion is not yet validated.
+torch==2.9.0
+litert-torch==0.10.0
+ai-edge-litert==2.3.0
+diffusers==0.42.0
+transformers==5.20.2
+huggingface-hub==2.3.0
+numpy==2.5.4
+pillow==13.0.0
+ftfy==6.3.1
+accelerate>=1.10,<2

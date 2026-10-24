@@ -20,7 +20,7 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
     fun generate(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
         steps: Int, method: ImageMethod = ImageMethod.CPU, outputDirectory: File? = null,
         progress: (Int, Int) -> Unit): ImageResult {
-        require(method != ImageMethod.TPU) { "No Tensor-compiled diffusion model is installed for TPU execution." }
+        if (method == ImageMethod.TPU) return generateLiteRt(model, word, category, prompt, seed, steps, outputDirectory, progress)
         require(model.id in store.ready()) { "Download and verify all ${model.name} files first." }
         require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank()) { "Enter a word, category and prompt." }
         require(prompt.length <= 2000) { "Use a prompt shorter than 2000 characters." }
@@ -53,6 +53,29 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
             backend = if (method == ImageMethod.GPU) "Vulkan GPU denoiser (text + VAE on CPU)" else "ARM CPU",
             loadAndEncodeMs = denoiseStart - nativeStart, denoiseMs = (denoiseEnd - denoiseStart).coerceAtLeast(0),
             decodeAndSaveMs = (SystemClock.elapsedRealtime() - denoiseEnd).coerceAtLeast(0))
+        File(directory, file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
+        return result
+    }
+    private fun generateLiteRt(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
+        steps: Int, outputDirectory: File?, progress: (Int, Int) -> Unit): ImageResult {
+        require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank() && prompt.length <= 2000)
+        require(seed >= 0)
+        val start = SystemClock.elapsedRealtime()
+        val output = LiteRtImageExecutor(context).generate(model, prompt, seed, steps, progress)
+        val inferenceMs = SystemClock.elapsedRealtime() - start
+        check(output.pixels.any { it != output.pixels.first() }) { "LiteRT returned a uniform blank image." }
+        val timestamp = System.currentTimeMillis()
+        val directory = outputDirectory?.apply { mkdirs() } ?: outputDirectory()
+        val file = File(directory, "$timestamp-${model.id}-TPU.png")
+        val bitmap = Bitmap.createBitmap(output.pixels, 512, 512, Bitmap.Config.ARGB_8888)
+        try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+        finally { bitmap.recycle() }
+        val result = ImageResult(model.id, model.name, word.trim(), category.trim(), prompt, seed, steps,
+            SystemClock.elapsedRealtime() - start, inferenceMs, highWaterRssKb(), file.absolutePath, timestamp,
+            output.hashes, "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.SOC_MODEL}", backend = output.backend,
+            runtime = "Google LiteRT 2.3.0 · word-image-litert-v1 · java.util.Random Gaussian noise",
+            loadAndEncodeMs = output.encodeMs, denoiseMs = output.denoiseMs,
+            decodeAndSaveMs = output.decodeMs + SystemClock.elapsedRealtime() - start - inferenceMs)
         File(directory, file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
         return result
     }
