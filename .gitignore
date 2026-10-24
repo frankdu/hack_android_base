@@ -9,9 +9,41 @@ local.properties
 *.part
 .DS_Store
 artifacts/
+output/
 app/src/main/jniLibs/
 
-# Local Python conversion environments and bytecode
-.venv-image-litert/
+# Python virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+.Python
+__pypackages__/
+
+# Python bytecode and packaging output
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.eggs/
+*.egg-info/
+*.egg
+dist/
+pip-wheel-metadata/
+
+# Python test, type-checker, and linter caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+
+# Python coverage reports and notebook checkpoints
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/

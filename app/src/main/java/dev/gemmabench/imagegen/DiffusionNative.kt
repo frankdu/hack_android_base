@@ -8,7 +8,7 @@ object DiffusionNative {
     external fun requestStop()
     external fun vulkanBuilt(): Boolean
     external fun generateOnBackend(model: String, encoder: String, vae: String, prompt: String,
-        flux: Boolean, gpu: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress): IntArray?
+        flux: Boolean, gpu: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress, retainEngine: Boolean = false): IntArray?
     fun generate(model: String, encoder: String, vae: String, prompt: String,
         flux: Boolean, steps: Int, seed: Long, threads: Int, listener: Progress): IntArray? =
         generateOnBackend(model, encoder, vae, prompt, flux, false, steps, seed, threads, listener)

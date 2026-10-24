@@ -32,7 +32,15 @@ class ImageBenchmarkTest {
             assertEquals(it[0].steps, it[1].steps)
         }
         assertEquals(ImageMethod.CPU, run.samples[0].method)
-        assertEquals(ImageMethod.GPU, run.samples[2].method)
+        assertTrue(run.samples.take(30).all { it.method == ImageMethod.CPU })
+        assertTrue(run.samples.drop(30).all { it.method == ImageMethod.GPU })
+        assertTrue(run.retainsEngine)
+    }
+
+    @Test fun historicalProtocolKeepsPerImageLoadingBehavior() {
+        val historical = plan().copy(protocol = "fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save")
+        assertFalse(historical.retainsEngine)
+        assertEquals(historical.protocol, historical.copy(status = ImageRunStatus.CANCELED).protocol)
     }
 
     @Test fun statisticsUseArithmeticMeanAndEvenMedianWithoutOverflow() {
@@ -74,6 +82,88 @@ class ImageBenchmarkTest {
         assertEquals(0, repo.run.pending)
         assertTrue(repo.checkpoints >= 122)
         assertTrue(repo.run.groups().all { it.speed!!.count == 30 })
+    }
+
+    @Test fun allThreeModelsAndBackendsFinishThirtyWordsBeforeUnloading() = runBlocking {
+        val models = ImageModels.all
+        assertEquals(3, models.size)
+        val allMethods = ImageMethod.entries.map { ImageMethodSupport(it, true, "test") }
+        val repo = MemoryRepository(newImageBenchmarkRun("all-combinations", 10, "test", models, allMethods, 20))
+        val expected = models.flatMap { model -> ImageMethod.entries.map { model.id to it } }
+        val completed = mutableListOf<Pair<String, ImageMethod>>()
+        var resident: Pair<String, ImageMethod>? = null
+        val words = mutableListOf<String>()
+        val runner = ImageBenchmarkRunner(repo, { _, sample ->
+            val key = sample.modelId to sample.method
+            if (resident == null) resident = key
+            assertEquals("Previous combination must unload before a new one loads", resident, key)
+            words += sample.input.word
+            result(sample) to 100L
+        }, {}, betweenSamples = {}, releaseCombination = {
+            assertNotNull(resident)
+            assertEquals(ImageBenchmarkSuite.prompts.map { it.word }, words)
+            completed += requireNotNull(resident)
+            resident = null
+            words.clear()
+        })
+        runner.run(repo.run.id) {}
+        assertEquals(expected, completed)
+        assertNull(resident)
+        assertEquals(270, repo.run.successful)
+        assertEquals(ImageRunStatus.COMPLETED, repo.run.status)
+    }
+
+    @Test fun stopReleasesSessionAndResumeFinishesCombinationBeforeLoadingNext() = runBlocking {
+        val repo = MemoryRepository(plan())
+        val called = mutableListOf<String>()
+        var releases = 0
+        var wordsThisSession = 0
+        lateinit var runner: ImageBenchmarkRunner
+        runner = ImageBenchmarkRunner(repo, { _, sample ->
+            called += sample.id
+            wordsThisSession++
+            if (called.size == 3) runner.stop()
+            result(sample) to 100L
+        }, {}, betweenSamples = {}, releaseCombination = {
+            releases++
+            assertEquals(when (releases) { 1 -> 3; 2 -> 27; else -> 30 }, wordsThisSession)
+            wordsThisSession = 0
+        })
+        runner.run(repo.run.id) {}
+        assertEquals(1, releases)
+        runner.resetStop()
+        runner.run(repo.run.id) {}
+        assertEquals(3, releases)
+        assertEquals(60, called.distinct().size)
+        assertEquals(60, called.size)
+    }
+
+    @Test fun canceledGenerationAlwaysReleasesWorker() = runBlocking {
+        val repo = MemoryRepository(plan())
+        var releases = 0
+        val runner = ImageBenchmarkRunner(repo, { _, _ -> throw kotlinx.coroutines.CancellationException("stop") },
+            {}, betweenSamples = {}, releaseCombination = { releases++ })
+        runner.run(repo.run.id) {}
+        assertEquals(1, releases)
+        assertEquals(ImageRunStatus.CANCELED, repo.run.status)
+        assertEquals(60, repo.run.pending)
+    }
+
+    @Test fun checkpointFailureStillReleasesWorker() = runBlocking {
+        val memory = MemoryRepository(plan())
+        val repo = object : ImageBenchmarkRepository {
+            override fun load(id: String) = memory.load(id)
+            override fun save(run: ImageBenchmarkRun) {
+                if (memory.checkpoints >= 2) error("storage full")
+                memory.save(run)
+            }
+        }
+        var releases = 0
+        val runner = ImageBenchmarkRunner(repo, { _, sample -> result(sample) to 100L }, {},
+            betweenSamples = {}, releaseCombination = { releases++ })
+        // A generation/checkpoint error is handled per sample, but a second storage failure escapes.
+        assertTrue(runCatching { runner.run(memory.run.id) {} }.isFailure)
+        assertEquals(1, releases)
     }
 
     @Test fun gpuFailureIsRecordedAndDoesNotBecomeACpuTiming() = runBlocking {

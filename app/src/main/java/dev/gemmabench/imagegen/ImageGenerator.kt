@@ -10,6 +10,7 @@ import java.io.File
 import java.util.concurrent.CancellationException
 
 class ImageGenerator(private val context: Context, private val store: ImageModelStore) {
+    private val liteRt by lazy { LiteRtImageExecutor(context) }
     private val gson = GsonBuilder().setPrettyPrinting().create()
     private fun outputDirectory() = File(context.filesDir, "word-images").apply { mkdirs() }
     fun results(): List<ImageResult> = outputDirectory().listFiles().orEmpty()
@@ -18,9 +19,9 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
         .filter { File(it.imagePath).isFile }
 
     fun generate(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
-        steps: Int, method: ImageMethod = ImageMethod.CPU, outputDirectory: File? = null,
+        steps: Int, method: ImageMethod = ImageMethod.CPU, outputDirectory: File? = null, retainEngine: Boolean = false,
         progress: (Int, Int) -> Unit): ImageResult {
-        if (method == ImageMethod.TPU) return generateLiteRt(model, word, category, prompt, seed, steps, outputDirectory, progress)
+        if (method == ImageMethod.TPU) return generateLiteRt(model, word, category, prompt, seed, steps, outputDirectory, retainEngine, progress)
         require(model.id in store.ready()) { "Download and verify all ${model.name} files first." }
         require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank()) { "Enter a word, category and prompt." }
         require(prompt.length <= 2000) { "Use a prompt shorter than 2000 characters." }
@@ -31,13 +32,13 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
         var denoiseStart = nativeStart
         var denoiseEnd = nativeStart
         val pixels = DiffusionNative.generateOnBackend(paths[0], paths.getOrElse(1) { "" }, paths.getOrElse(2) { "" },
-            prompt, model.flux, method == ImageMethod.GPU, steps, seed, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)) { step, total, _ ->
+            prompt, model.flux, method == ImageMethod.GPU, steps, seed, Runtime.getRuntime().availableProcessors().coerceIn(1, 4), DiffusionNative.Progress { step, total, _ ->
                 if (total == steps) {
                     if (step == 0) denoiseStart = SystemClock.elapsedRealtime()
                     if (step == total) denoiseEnd = SystemClock.elapsedRealtime()
                     progress(step, total)
                 }
-            } ?: throw CancellationException("Image generation stopped.")
+            }, retainEngine) ?: throw CancellationException("Image generation stopped.")
         val nativeMs = SystemClock.elapsedRealtime() - nativeStart
         check(pixels.size == 512 * 512) { "Unexpected image dimensions from native runtime." }
         check(pixels.any { it != pixels.first() }) { "The backend returned a uniform blank image; this device/backend may be incompatible." }
@@ -57,11 +58,12 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
         return result
     }
     private fun generateLiteRt(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
-        steps: Int, outputDirectory: File?, progress: (Int, Int) -> Unit): ImageResult {
+        steps: Int, outputDirectory: File?, retainEngine: Boolean, progress: (Int, Int) -> Unit): ImageResult {
         require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank() && prompt.length <= 2000)
         require(seed >= 0)
         val start = SystemClock.elapsedRealtime()
-        val output = LiteRtImageExecutor(context).generate(model, prompt, seed, steps, progress)
+        val output = if (retainEngine) liteRt.generate(model, prompt, seed, steps, progress)
+            else LiteRtImageExecutor(context).use { it.generate(model, prompt, seed, steps, progress) }
         val inferenceMs = SystemClock.elapsedRealtime() - start
         check(output.pixels.any { it != output.pixels.first() }) { "LiteRT returned a uniform blank image." }
         val timestamp = System.currentTimeMillis()

@@ -13,12 +13,25 @@ import java.nio.ByteOrder
 import java.util.Random
 
 /** Executes exporter-owned tensor plans, with one shard resident at a time. */
-class LiteRtImageExecutor(private val context: Context) {
+class LiteRtImageExecutor(private val context: Context) : AutoCloseable {
+    private var modelId: String? = null
+    private var bundle: Pair<java.io.File, JsonObject>? = null
+    private var environment: Environment? = null
+    override fun close() {
+        environment?.close()
+        environment = null
+        bundle = null
+        modelId = null
+    }
     data class Output(val pixels: IntArray, val hashes: Map<String, String>, val backend: String,
         val encodeMs: Long, val denoiseMs: Long, val decodeMs: Long)
 
     fun generate(model: ImageModel, prompt: String, seed: Long, steps: Int, progress: (Int, Int) -> Unit): Output {
-        val (dir, manifest) = LiteRtImageBundles(context).load(model.id)
+        require(modelId == null || modelId == model.id) { "Close the TPU session before changing models." }
+        val (dir, manifest) = bundle ?: LiteRtImageBundles(context).load(model.id).also {
+            bundle = it
+            modelId = model.id
+        }
         require(steps == manifest["steps"].asInt) { "The compiled bundle fixes ${manifest["steps"]} steps. Re-export to change it." }
         val tensors = mutableMapOf<String, Any>()
         val tokenizers = mutableMapOf<String, ImageBpeTokenizer.Encoded>()
@@ -57,7 +70,10 @@ class LiteRtImageExecutor(private val context: Context) {
         uses[final] = (uses[final] ?: 0) + 1
         val times = mutableMapOf("encode" to 0L, "denoise" to 0L, "decode" to 0L)
         var reportedStep = 0
-        Environment.create(context, mapOf(Environment.Option.DispatchLibraryDir to context.applicationInfo.nativeLibraryDir)).use { environment ->
+        val activeEnvironment = environment ?: Environment.create(context,
+            mapOf(Environment.Option.DispatchLibraryDir to context.applicationInfo.nativeLibraryDir)).also { environment = it }
+        run {
+            val environment = activeEnvironment
             check(Accelerator.NPU in environment.getAvailableAccelerators()) { "LiteRT Google Tensor NPU dispatch is unavailable on this device/build." }
             for (action in actions) {
                 val phase = action["phase"].asString

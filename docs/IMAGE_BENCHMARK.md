@@ -8,9 +8,9 @@ Select one or more installed models and the available CPU/GPU methods, then pres
 
 `ImageBenchmarkSuite` defines `word-concepts-30-v1`: 30 hand-crafted prompts covering fruit, animals, everyday objects, actions, feelings, colors and shapes. Each word has a deterministic seed (42–71). The complete prompt, category, seed, model, step count, hardware method and protocol are copied into each run manifest. History/resume never regenerates prompts from a newer suite.
 
-All images are 512×512. Each model uses its default step count (SD-Turbo 1; SDXL-Turbo and FLUX Klein 4). Hardware comparisons within a model use identical prompts/seeds/settings. Model/method order reverses on alternating words to reduce a fixed CPU-first warming bias. These are end-to-end workflow measurements, with a fresh process and engine per image, one second between samples, and no excluded warm-up. They are not steady-state retained-engine throughput measurements, nor thermally controlled experiments.
+All images are 512×512. Each model uses its default step count (SD-Turbo 1; SDXL-Turbo and FLUX Klein 4). Hardware comparisons within a model use identical prompts/seeds/settings. Each model/backend combination completes all 30 words in suite order before the next combination starts (model order, then selected CPU/GPU/TPU methods). CPU/GPU keep one loaded engine for the combination. TPU keeps one runtime/bundle session and streams one compiled graph shard at a time to limit memory. After each combination the worker is terminated and its death is confirmed before another model/backend loads. There is one second between samples and no excluded warm-up. These are workflow measurements with shared loading cost within each combination, not thermally controlled experiments.
 
-The primary latency includes worker startup, model loading, text encoding, denoising, VAE decoding and PNG saving. Each result additionally retains the image generator's total/native/phase times, component hashes, dimensions, seed, runtime identity and process high-water RSS. A GPU's additional allocations are not established by the RSS value alone.
+The primary latency includes worker startup and model loading for the first image of a combination, and text encoding, denoising, VAE decoding and PNG saving for every image. TPU graph loading remains part of each image because shards are streamed. A restart after an error or Stop/resume incurs loading again. Process high-water RSS now covers the combination, rather than resetting per image. Existing historical runs retain their saved protocol and per-image worker behavior when resumed; start a new run to use combination sessions. Each result additionally retains the image generator's total/native/phase times, component hashes, dimensions, seed, runtime identity and process high-water RSS. A GPU's additional allocations are not established by the RSS value alone.
 
 Statistics are grouped by **model + method**, using successful samples only:
 
@@ -28,7 +28,7 @@ Average and mean are the same statistic. Median is provided to show the center w
 
 A GPU failure marks the current job failed and skips remaining GPU jobs in that run, avoiding 30 repeated driver failures. CPU jobs can continue. A native CPU worker crash skips remaining jobs for that model/CPU combination. Other ordinary CPU errors are recorded per image.
 
-Native generation runs in a non-exported `:imagebenchmark` service process. Driver crashes, aborts, timeouts and Stop terminate that worker without destroying the main UI or run manifests. The per-image timeout is selectable (5/10/20 minutes); 20 is the default to accommodate slow FLUX CPU generation and cold GPU compilation. No cloud fallback is used.
+Native generation runs in a non-exported `:imagebenchmark` service process. Completion of a combination, driver crashes, aborts, timeouts and Stop terminate that worker without destroying the main UI or run manifests. The per-image timeout is selectable (5/10/20 minutes); 20 is the default to accommodate slow FLUX CPU generation and cold GPU compilation. No cloud fallback is used.
 
 ## Quality review and history
 
@@ -54,7 +54,7 @@ Vulkan is enabled by default. The first CMake configuration fetches pinned heade
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-Host tests execute the complete 30-word CPU/GPU schedule through a fake generator to validate ordering and statistics, and check failed methods and cancellation/resume. This is scheduler validation, not synthetic phone throughput.
+Host tests execute all 270 samples (three models × CPU/GPU/TPU × 30 words) through a fake generator, verifying that each combination finishes and unloads before the next loads. They also check statistics, failed methods, release on cancellation/storage errors, and resume without repeating successful images. This is scheduler validation, not synthetic phone throughput.
 
 The instrumented tests check atomic persistence/interruption recovery and ratings. A separate, explicitly opted-in test runs one bounded real native sample in the isolated worker:
 
@@ -76,6 +76,21 @@ All 74 host tests, Android lint and debug/test APK builds pass. The host runner 
 On Pixel 10 Pro Fold / Tensor G5, a real SD-Turbo hybrid GPU sample generated a recognizable 512×512 apple in **118.225 s end-to-end / 117.475 s generation**. Its phases were **14.757 s loading/encoding, 42.488 s denoising, 60.233 s decoding/saving**. The GPU denoiser completed; full-GPU VAE trials did not finish within 3- and 5-minute limits, so the deployed GPU method keeps decoding on CPU. This sample demonstrates execution, not a general GPU speedup. SDXL/FLUX GPU execution has not been established by this SD-Turbo smoke test.
 
 The real application controller also started the 30-word CPU plan and stopped after its first image: **71.109 s end-to-end / 70.550 s generation**, with one successful image and 29 jobs pending. That labeled **VALIDATION SAMPLE** run, its image and its resumable pending jobs remain on the phone. The full hours-long suite was not run during development. Exact evidence is recorded in [IMAGE_BENCHMARK_VALIDATION.json](IMAGE_BENCHMARK_VALIDATION.json).
+
+## Combination session validation on 2026-10-23
+
+After the memory-efficiency change, all 85 host tests, Android lint and debug/test APK builds pass. The scheduler test verifies all 270 samples (three models × three backends × 30 words), unloading after each 30-word group and before loading the next. Cancellation/resume and exceptional cleanup are covered separately. On the final installed build, device cancellation-before/during-bind and checkpoint/rating recovery tests also pass.
+
+A bounded real SD-Turbo CPU test on Pixel 10 Pro Fold / Tensor G5 generated apple and banana in the same worker, then verified that the worker exited after release. Loading/encoding took 6.460 s for the first word and 0.551 s for the second. Process high-water RSS was 2,490,824 KiB then 2,496,020 KiB. These two samples validate reuse and cleanup; they do not establish full-suite memory bounds or GPU/TPU performance. Evidence is recorded in [IMAGE_BENCHMARK_SESSION_VALIDATION.json](IMAGE_BENCHMARK_SESSION_VALIDATION.json).
+
+Run this bounded reuse/cleanup check after installing both APKs:
+
+```sh
+adb shell am instrument -w \
+  -e class dev.gemmabench.ImageBenchmarkInstrumentedTest#combinationSessionReusesWorkerForTwoWordsAndReleasesIt \
+  -e imageBenchmarkSession true \
+  dev.gemmabench.test/androidx.test.runner.AndroidJUnitRunner
+```
 
 ## Experimental LiteRT Tensor TPU workflow
 

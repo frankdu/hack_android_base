@@ -64,8 +64,9 @@ data class ImageBenchmarkRun(
     val device: String, val suiteVersion: String, val samples: List<ImageBenchmarkSample>,
     val skippedMethods: List<ImageMethodSupport>, val timeoutMinutes: Int,
     val status: ImageRunStatus = ImageRunStatus.RUNNING, val finishedAtEpochMs: Long? = null,
-    val protocol: String = "512x512; fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE, TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save; no warm-up excluded; 1s between samples",
+    val protocol: String = "512x512; fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE, TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; worker/engine retained per model/method; all 30 words before unloading; worker termination awaited before next combination; TPU streams one compiled shard at a time; end-to-end latency includes startup/load on first image and encode/denoise/decode/save on every image; no warm-up excluded; 1s between samples; RSS high-water is per combination",
 ) {
+    val retainsEngine get() = protocol.contains("worker/engine retained per model/method")
     val successful get() = samples.count { it.status == ImageSampleStatus.SUCCESS }
     val failed get() = samples.count { it.status == ImageSampleStatus.FAILED }
     val pending get() = samples.count { it.status == ImageSampleStatus.PENDING || it.status == ImageSampleStatus.RUNNING }
@@ -96,13 +97,13 @@ fun newImageBenchmarkRun(id: String, now: Long, device: String, models: List<Ima
     require(models.isNotEmpty() && models.distinctBy { it.id }.size == models.size)
     require(methods.any { it.available } && methods.distinctBy { it.method }.size == methods.size)
     require(timeoutMinutes in 1..60)
-    // Alternate method/model order by word to reduce a fixed CPU-first warming bias.
     val combinations = models.flatMap { model -> methods.filter { it.supports(model.id) }.map { model to it.method } }
     require(combinations.isNotEmpty()) { "No selected model/method combination is installed." }
-    val samples = ImageBenchmarkSuite.prompts.flatMapIndexed { index, input ->
-        val ordered = if (index % 2 == 0) combinations else combinations.reversed()
-        ordered.map { (model, method) -> ImageBenchmarkSample("${model.id}-${method.name}-$index", model.id,
-            model.name, method, input, model.steps) }
+    val samples = combinations.flatMap { (model, method) ->
+        ImageBenchmarkSuite.prompts.mapIndexed { index, input ->
+            ImageBenchmarkSample("${model.id}-${method.name}-$index", model.id,
+                model.name, method, input, model.steps)
+        }
     }
     return ImageBenchmarkRun(id, now, now, device, ImageBenchmarkSuite.VERSION, samples, methods.filterNot { it.available }, timeoutMinutes)
 }

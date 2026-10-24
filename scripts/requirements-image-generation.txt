@@ -1,0 +1,9 @@
+# Python 3.11 or 3.12 recommended. Install a CUDA-enabled torch build for NVIDIA GPUs.
+torch>=2.6
+diffusers>=0.37.0
+transformers>=4.57,<5
+accelerate>=1.2
+safetensors>=0.5
+Pillow>=11
+sentencepiece>=0.2
+tqdm>=4.67

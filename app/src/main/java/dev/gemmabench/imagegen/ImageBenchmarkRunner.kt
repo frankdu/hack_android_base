@@ -15,6 +15,7 @@ class ImageBenchmarkRunner(
     private val cancelNative: () -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
     private val betweenSamples: suspend () -> Unit = { delay(1000) },
+    private val releaseCombination: suspend () -> Unit = {},
 ) {
     private val stopped = AtomicBoolean(false)
     fun resetStop() { stopped.set(false) }
@@ -26,11 +27,19 @@ class ImageBenchmarkRunner(
             onUpdate(next)
             return next
         }
+        var combination: Pair<String, ImageMethod>? = null
         checkpoint { it.copy(status = ImageRunStatus.RUNNING, finishedAtEpochMs = null) }
         try {
             while (!stopped.get()) {
                 val run = repository.load(id)
                 val sample = run.samples.firstOrNull { it.status == ImageSampleStatus.PENDING } ?: break
+                val nextCombination = sample.modelId to sample.method
+                if (combination != null && combination != nextCombination) {
+                    releaseCombination()
+                    combination = null
+                }
+                if (stopped.get()) break
+                combination = nextCombination
                 checkpoint { it.copy(samples = it.samples.map { s -> if (s.id == sample.id) s.copy(status = ImageSampleStatus.RUNNING, error = null) else s }) }
                 try {
                     val (result, elapsed) = generate(run, sample)
@@ -52,6 +61,8 @@ class ImageBenchmarkRunner(
                 }
                 if (!stopped.get() && repository.load(id).pending > 0) betweenSamples()
             }
+            releaseCombination()
+            combination = null
             checkpoint { it.copy(status = if (stopped.get()) ImageRunStatus.CANCELED else ImageRunStatus.COMPLETED,
                 finishedAtEpochMs = clock(), samples = it.samples.map { s ->
                     if (s.status == ImageSampleStatus.RUNNING) s.copy(status = ImageSampleStatus.PENDING) else s
@@ -60,6 +71,8 @@ class ImageBenchmarkRunner(
             checkpoint { it.copy(status = ImageRunStatus.CANCELED, finishedAtEpochMs = clock(), samples = it.samples.map { s ->
                 if (s.status == ImageSampleStatus.RUNNING) s.copy(status = ImageSampleStatus.PENDING, error = "Stopped; resume to retry this word.") else s
             }) }
+        } finally {
+            if (combination != null) releaseCombination()
         }
     }
 }

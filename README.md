@@ -15,6 +15,8 @@ At the end of **Images**, the **30-word generation benchmark** runs fixed vocabu
 
 The dictionary comes from `seed/kids_english_dictionary.txt`, packaged directly as an Android asset. `KidsEnglishDictionary` parses its blank-line-separated `Category: <name>` sections into Kotlin `WordCategory` objects, preserving the order and text of the items. Edit the seed file and rebuild to update the vocabulary.
 
+To generate all 10,000 vocabulary illustrations locally on a computer, use [`scripts/generate_word_images.py`](scripts/generate_word_images.py). It defaults to FLUX.2 Klein 4B, 520×520 PNGs in `./output/images`, downloads uncached weights automatically, and resumes by skipping completed images. See [setup, options and resume behavior](docs/LOCAL_WORD_IMAGES.md).
+
 Each word has a **speaker** icon that uses the TTS engine selected in Settings and a **sparkle assistant** icon that starts a voice conversation about the word. Gemma introduces the concept, asks what the child wants to know, transcribes microphone audio locally and answers through the selected voice. Spoken text appears with word highlighting. Contextual Talk, Done, Cancel and Stop speaking controls and typed questions are supported. Install a multimodal Gemma model in Research Lab first. See [word assistant design, timing limits and validation](docs/WORD_ASSISTANT.md).
 
 System speech uses an installed offline English voice. Kokoro and Kitten download Apache-2.0 models on first use (92 MB / 24 MB), then synthesize offline. Kokoro uses **Adam (`am_adam`)** and KittenTTS uses **Kiki (`expr-voice-5-f`)**. See [TTS research and licensing](docs/TTS_OPTIONS.md). After editing dictionary vocabulary, regenerate its pronunciation assets as described there.

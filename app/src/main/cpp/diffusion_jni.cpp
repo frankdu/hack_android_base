@@ -15,6 +15,7 @@
 namespace {
 std::mutex context_mutex;
 sd_ctx_t* active_context = nullptr;
+std::string active_key;
 std::atomic<bool> stopped{false};
 struct UtfString {
     JNIEnv* env; jstring value; const char* chars;
@@ -45,7 +46,7 @@ Java_dev_gemmabench_imagegen_DiffusionNative_requestStop(JNIEnv*, jobject) {
 extern "C" JNIEXPORT jintArray JNICALL
 Java_dev_gemmabench_imagegen_DiffusionNative_generateOnBackend(JNIEnv* env, jobject,
         jstring model_path, jstring encoder_path, jstring vae_path, jstring prompt,
-        jboolean flux, jboolean gpu, jint steps, jlong seed, jint threads, jobject listener) {
+        jboolean flux, jboolean gpu, jint steps, jlong seed, jint threads, jobject listener, jboolean retain_engine) {
     const auto features = getauxval(AT_HWCAP);
     if (!(features & HWCAP_ASIMDHP) || !(features & HWCAP_ASIMDDP)) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Image generation requires ARM FP16 and dot-product instructions (supported by Pixel 10/11).");
@@ -81,7 +82,19 @@ Java_dev_gemmabench_imagegen_DiffusionNative_generateOnBackend(JNIEnv* env, jobj
         ctx_params.model_path = model.chars;
     }
     if (stopped.load()) return nullptr;
-    sd_ctx_t* ctx = new_sd_ctx(&ctx_params);
+    const std::string key = std::string(model.chars) + "\n" + encoder.chars + "\n" + vae.chars +
+        (gpu ? "\ngpu" : "\ncpu") + (flux ? "\nflux" : "\nsd") + std::to_string(threads);
+    sd_ctx_t* ctx;
+    {
+        std::lock_guard<std::mutex> lock(context_mutex);
+        if (active_context && active_key != key) {
+            free_sd_ctx(active_context);
+            active_context = nullptr;
+            active_key.clear();
+        }
+        ctx = active_context;
+    }
+    if (!ctx) ctx = new_sd_ctx(&ctx_params);
     if (!ctx) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Could not load the diffusion model. Check model files and available RAM.");
         return nullptr;
@@ -89,6 +102,7 @@ Java_dev_gemmabench_imagegen_DiffusionNative_generateOnBackend(JNIEnv* env, jobj
     {
         std::lock_guard<std::mutex> lock(context_mutex);
         active_context = ctx;
+        active_key = key;
         if (stopped.load()) sd_cancel_generation(ctx, SD_CANCEL_ALL);
     }
     Progress progress{env, listener, env->GetMethodID(env->GetObjectClass(listener), "onProgress", "(IIF)V")};
@@ -122,11 +136,12 @@ Java_dev_gemmabench_imagegen_DiffusionNative_generateOnBackend(JNIEnv* env, jobj
     }
     if (images) free_sd_images(images, count);
     sd_set_progress_callback(nullptr, nullptr);
-    {
+    if (!retain_engine || !ok || stopped.load() || env->ExceptionCheck()) {
         std::lock_guard<std::mutex> lock(context_mutex);
         active_context = nullptr;
+        active_key.clear();
+        free_sd_ctx(ctx);
     }
-    free_sd_ctx(ctx);
     if (!ok && !stopped.load() && !env->ExceptionCheck()) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Image generation failed. The model may exceed available device memory; see WordDiffusion in logcat.");
     }

@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-23",
+  "device": "Google Pixel 10 Pro Fold · Tensor G5",
+  "host": {
+    "tests": 85,
+    "failures": 0,
+    "androidLint": "passed",
+    "debugApk": "built",
+    "androidTestApk": "built",
+    "schedulerSamples": 270,
+    "schedulerIsFakeGenerator": true
+  },
+  "deviceSession": {
+    "test": "ImageBenchmarkInstrumentedTest#combinationSessionReusesWorkerForTwoWordsAndReleasesIt",
+    "result": "passed",
+    "testElapsedSeconds": 162.981,
+    "modelId": "SD_TURBO",
+    "method": "CPU",
+    "workerPid": 19831,
+    "sameWorkerForBothImages": true,
+    "workerExitedAfterRelease": true,
+    "images": [
+      {
+        "word": "apple",
+        "totalMs": 72688,
+        "loadAndEncodeMs": 6460,
+        "peakRssKb": 2490824
+      },
+      {
+        "word": "banana",
+        "totalMs": 89086,
+        "loadAndEncodeMs": 551,
+        "peakRssKb": 2496020
+      }
+    ],
+    "artifactDirectoryOnDevice": "files/image-benchmarks/session-2ff929ab-d003-47ef-bdce-e7a446ce32ab/images"
+  },
+  "limits": "Two real SD-Turbo CPU images validate engine/worker reuse and termination. The complete 30-word hardware runs and retained GPU/TPU sessions were not executed.",
+  "deviceAdditionalChecks": {
+    "cancellationBeforeAndDuringBinding": "passed",
+    "checkpointRecoveryAndRatings": "passed",
+    "tests": 2,
+    "elapsedSeconds": 0.626
+  }
+}

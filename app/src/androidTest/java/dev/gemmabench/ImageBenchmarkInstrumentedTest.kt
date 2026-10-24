@@ -69,6 +69,45 @@ class ImageBenchmarkInstrumentedTest {
         Unit
     }
 
+    @Test fun combinationSessionReusesWorkerForTwoWordsAndReleasesIt() = runBlocking {
+        assumeTrue("Opt in with imageBenchmarkSession true",
+            InstrumentationRegistry.getArguments().getString("imageBenchmarkSession") == "true")
+        val model = ImageModels.get("SD_TURBO")
+        assumeTrue("Install SD-Turbo", model.id in ImageModelStore(context).ready())
+        val plan = newImageBenchmarkRun("session-${UUID.randomUUID()}", 1, "test", listOf(model),
+            listOf(ImageMethodSupport(ImageMethod.CPU, true, "CPU")), 5)
+        val client = ImageBenchmarkClient(context)
+        val manager = context.getSystemService(android.app.ActivityManager::class.java)
+        fun workerPid() = manager.runningAppProcesses.orEmpty()
+            .firstOrNull { it.processName == "${context.packageName}:imagebenchmark" }?.pid
+        val results = mutableListOf<ImageResult>()
+        try {
+            var firstPid: Int? = null
+            for (sample in plan.samples.take(2)) {
+                results += client.generate(sample, ImageBenchmarkStore(context).images(plan.id), 5,
+                    retainWorker = true) { _, _ -> }
+                val pid = workerPid()
+                assertNotNull("Worker remains resident between words", pid)
+                if (firstPid == null) firstPid = pid else assertEquals("Same worker for both words", firstPid, pid)
+            }
+            assertEquals(listOf("apple", "banana"), results.map { it.word })
+            assertNotEquals(results[0].imagePath, results[1].imagePath)
+            results.forEach { result ->
+                val bitmap = requireNotNull(BitmapFactory.decodeFile(result.imagePath))
+                assertEquals(512, bitmap.width)
+                assertEquals(512, bitmap.height)
+                val pixels = IntArray(512 * 512)
+                bitmap.getPixels(pixels, 0, 512, 0, 0, 512, 512)
+                bitmap.recycle()
+                assertTrue("Blank image", pixels.toSet().size > 1000)
+            }
+            Log.i("ImageBenchmarkSmoke", "RETAINED SESSION pid=$firstPid " +
+                results.joinToString { "${it.word}: total=${it.totalMs} loadEncode=${it.loadAndEncodeMs} rssKb=${it.peakRssKb}" })
+        } finally { client.release() }
+        withTimeout(5_000) { while (workerPid() != null) delay(20) }
+        assertNull("Combination releases worker before next model", workerPid())
+    }
+
     @Test fun checkpointsRecoverAfterProcessExitAndQualityRatingsSurviveReload() {
         val directory = File(context.cacheDir, "image-bench-test-${UUID.randomUUID()}").apply { mkdirs() }
         val isolated = object : ContextWrapper(context) { override fun getFilesDir() = directory }

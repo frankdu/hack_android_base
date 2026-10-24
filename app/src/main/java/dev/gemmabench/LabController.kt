@@ -66,13 +66,13 @@ class LabController(private val app: Application) {
     private val imageBenchmarkClient = ImageBenchmarkClient(app)
     private val imageBenchmarkRunner = ImageBenchmarkRunner(imageBenchmarkStore, { run, sample ->
         val started = android.os.SystemClock.elapsedRealtime()
-        val result = imageBenchmarkClient.generate(sample, imageBenchmarkStore.images(run.id), run.timeoutMinutes) { step, steps ->
+        val result = imageBenchmarkClient.generate(sample, imageBenchmarkStore.images(run.id), run.timeoutMinutes, retainWorker = run.retainsEngine) { step, steps ->
             mutable.update { it.copy(imageBenchmark = it.imageBenchmark.copy(step = step, steps = steps),
                 progress = if (step >= steps) "Benchmark · decoding ${sample.input.word} · ${sample.method.label}"
                     else "Benchmark · ${sample.input.word} · ${sample.method.label} · step $step / $steps") }
         }
         result to (android.os.SystemClock.elapsedRealtime() - started)
-    }, imageBenchmarkClient::stop)
+    }, imageBenchmarkClient::stop, releaseCombination = imageBenchmarkClient::release)
     private val photoLibrary = PhotoLibrary(app)
     private val photoCache by lazy { PhotoAnalysisCache(PhotoCacheDatabase.getInstance(app).photoAnalysis()) }
     private val peopleRepository by lazy { PeopleRepository(PhotoCacheDatabase.getInstance(app)) }
@@ -277,7 +277,7 @@ class LabController(private val app: Application) {
                 val result = if (method == ImageMethod.TPU) {
                     val input = ImageBenchmarkPrompt(word, category, prompt, seed)
                     val sample = ImageBenchmarkSample("manual", id, model.name, method, input, steps)
-                    imageBenchmarkClient.generate(sample, java.io.File(app.filesDir, "word-images"), 20, onProgress)
+                    imageBenchmarkClient.generate(sample, java.io.File(app.filesDir, "word-images"), 20, progress = onProgress)
                 } else imageGenerator.generate(model, word, category, prompt, seed, steps, method, progress = onProgress)
                 mutable.update { it.copy(images = it.images.copy(results = (listOf(result) + it.images.results).take(24)),
                     progress = "${result.modelName} image saved · ${result.totalMs / 1000.0} s including model load.") }

@@ -43,7 +43,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
     HorizontalDivider()
     Text("30-word generation benchmark", style = MaterialTheme.typography.headlineSmall)
     Text("One click runs 30 fixed word prompts for every selected model and method. The same word uses the same prompt and seed across comparisons.")
-    Text("Speed includes worker startup, model loading, encoding, denoising, decoding and PNG saving. A fresh engine is used for every image; no warm-up is excluded. Resolution: 512 × 512. Average and mean are the same statistic; median is shown too.", style = MaterialTheme.typography.bodySmall)
+    Text("Each model + CPU/GPU/TPU combination runs all 30 words, then unloads before the next combination. Speed includes loading on the first image and generation/saving on every image; no warm-up is excluded. TPU streams one compiled shard at a time. Resolution: 512 × 512. Average and mean are the same statistic; median is shown too.", style = MaterialTheme.typography.bodySmall)
     Text("Models", style = MaterialTheme.typography.titleMedium)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ImageModels.all.forEach { model ->
@@ -100,6 +100,8 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         if (displayed.id != latest?.id) TextButton(onClick = { viewedId = "" }) { Text("View most recent run") }
         Text("${date(displayed.startedAtEpochMs)} · ${displayed.status.name.lowercase().replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.titleMedium)
         Text("${displayed.successful} generated · ${displayed.failed} failed · ${displayed.pending} pending · ${displayed.samples.count { it.status == ImageSampleStatus.SKIPPED }} skipped", style = MaterialTheme.typography.bodySmall)
+        Text(if (displayed.retainsEngine) "Loading is shared across 30 words per combination; memory is released between combinations."
+            else "Historical protocol: fresh worker and model loading for every image.", style = MaterialTheme.typography.bodySmall)
         Text(displayed.device, style = MaterialTheme.typography.labelSmall)
         Text("${displayed.suiteVersion} · timeout ${displayed.timeoutMinutes} min/image", style = MaterialTheme.typography.labelSmall)
         displayed.skippedMethods.forEach { Text("${it.method.label} unavailable: ${it.reason}", style = MaterialTheme.typography.bodySmall) }
