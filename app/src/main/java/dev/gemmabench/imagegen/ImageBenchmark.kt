@@ -40,13 +40,16 @@ object ImageBenchmarkSuite {
 }
 
 enum class ImageMethod(val label: String, val detail: String) {
-    CPU("CPU", "ARM CPU · native GGUF or LiteRT according to model"),
-    GPU("GPU", "Vulkan for GGUF; LiteRT FP32 GPU for LiteRT models · experimental"),
+    CPU("CPU", "LiteRT CPU · 4 threads"),
+    GPU("GPU", "LiteRT FP32 GPU · Bonsai text encoder and VAE on CPU · experimental"),
     TPU("TPU", "LiteRT Tensor TPU + CPU host/unsupported partitions · experimental"),
 }
 data class ImageMethodSupport(val method: ImageMethod, val available: Boolean, val reason: String,
-    val modelIds: Set<String>? = null) {
+    val modelIds: Set<String>? = null, val compatibleModelIds: Set<String>? = null,
+    val modelReasons: Map<String, String>? = null) {
     fun supports(modelId: String) = available && (modelIds == null || modelId in modelIds)
+    fun compatible(modelId: String) = available && (compatibleModelIds == null || modelId in compatibleModelIds)
+    fun reasonFor(modelId: String) = modelReasons?.get(modelId) ?: reason
 }
 data class ImageBenchmarkState(val runs: List<ImageBenchmarkRun> = emptyList(),
     val methods: List<ImageMethodSupport> = emptyList(), val activeRunId: String? = null,
@@ -93,16 +96,19 @@ data class ImageBenchmarkGroup(val modelId: String, val modelName: String, val m
 fun ImageBenchmarkRun.groups(): List<ImageBenchmarkGroup> = samples.groupBy { it.modelId to it.method }
     .map { (key, values) -> ImageBenchmarkGroup(key.first, values.first().modelName, key.second, values) }
 fun newImageBenchmarkRun(id: String, now: Long, device: String, models: List<ImageModel>,
-    methods: List<ImageMethodSupport>, timeoutMinutes: Int): ImageBenchmarkRun {
+    methods: List<ImageMethodSupport>, timeoutMinutes: Int, includeUnavailable: Boolean = false): ImageBenchmarkRun {
     require(models.isNotEmpty() && models.distinctBy { it.id }.size == models.size)
     require(methods.any { it.available } && methods.distinctBy { it.method }.size == methods.size)
     require(timeoutMinutes in 1..60)
     val combinations = models.flatMap { model -> methods.filter { it.supports(model.id) }.map { model to it.method } }
     require(combinations.isNotEmpty()) { "No selected model/method combination is installed." }
-    val samples = combinations.flatMap { (model, method) ->
+    val pairs = if (includeUnavailable) models.flatMap { model -> methods.map { model to it.method } } else combinations
+    val samples = pairs.flatMap { (model, method) ->
         ImageBenchmarkSuite.prompts.mapIndexed { index, input ->
             ImageBenchmarkSample("${model.id}-${method.name}-$index", model.id,
-                model.name, method, input, model.steps)
+                model.name, method, input, model.steps,
+                status = if (methods.first { it.method == method }.supports(model.id)) ImageSampleStatus.PENDING else ImageSampleStatus.SKIPPED,
+                error = methods.first { it.method == method }.takeUnless { it.supports(model.id) }?.reasonFor(model.id))
         }
     }
     return ImageBenchmarkRun(id, now, now, device, ImageBenchmarkSuite.VERSION, samples, methods.filterNot { it.available }, timeoutMinutes)

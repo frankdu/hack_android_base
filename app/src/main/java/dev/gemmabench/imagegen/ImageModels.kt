@@ -1,9 +1,16 @@
 package dev.gemmabench.imagegen
 
 data class ImageFile(val filename: String, val repository: String, val revision: String,
-    val remotePath: String, val bytes: Long, val sha256: String) {
+    val remotePath: String, val bytes: Long, val sha256: String,
+    val fallbacks: List<ImageLocation> = emptyList()) {
+    val url get() = "https://huggingface.co/$repository/resolve/$revision/$remotePath"
+    val locations get() = listOf(ImageLocation(repository, revision, remotePath)) + fallbacks
+}
+data class ImageLocation(val repository: String, val revision: String, val remotePath: String) {
     val url get() = "https://huggingface.co/$repository/resolve/$revision/$remotePath"
 }
+/** Retry a pinned mirror for missing/rejected upstream artifacts, not storage or Wi-Fi waits. */
+fun imageDownloadCanFallback(reason: Int) = reason in setOf(401, 403, 404, 408, 410, 429, 1002, 1004, 1005, 1008) || reason in 500..599
 data class ImageModel(val id: String, val name: String, val role: String, val steps: Int,
     val flux: Boolean, val description: String, val source: String, val license: String,
     val files: List<ImageFile>, val pipeline: ImagePipeline = ImagePipeline.NATIVE,
@@ -33,11 +40,13 @@ object ImageModels {
             ImageFile("Qwen3-4B-Q4_K_M.gguf", "unsloth/Qwen3-4B-GGUF", "22c9fc8a8c7700b76a1789366280a6a5a1ad1120", "Qwen3-4B-Q4_K_M.gguf", 2497281312L, "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"),
             ImageFile("flux2-vae.safetensors", "Comfy-Org/flux2-klein-4B", "533c4cbc3d3b89af1743d9466c434e89810391c0", "split_files/vae/flux2-vae.safetensors", 336211292L, "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3")))
     ) + CommunityImageModels.all
+    val liteRt get() = CommunityImageModels.all.filterNot { it.id == "IRIS_LITERT" }
+    val legacy get() = all.filter { it.pipeline == ImagePipeline.NATIVE }
     fun get(id: String) = all.first { it.id == id }
 }
 
 data class ImageTransfer(val modelId: String, val filename: String, val bytes: Long,
-    val total: Long, val phase: String, val error: String? = null) {
+    val total: Long, val phase: String, val error: String? = null, val repository: String? = null) {
     val active get() = error == null
 }
 data class ImageResult(val modelId: String, val modelName: String, val word: String, val category: String,
@@ -46,7 +55,8 @@ data class ImageResult(val modelId: String, val modelName: String, val word: Str
     val modelHashes: Map<String, String>, val device: String,
     val backend: String = "ARM CPU", val width: Int = 512, val height: Int = 512,
     val runtime: String = "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
-    val loadAndEncodeMs: Long = 0, val denoiseMs: Long = 0, val decodeAndSaveMs: Long = 0)
+    val loadAndEncodeMs: Long = 0, val denoiseMs: Long = 0, val decodeAndSaveMs: Long = 0,
+    val modelSources: Map<String, String> = emptyMap())
 data class ImageLabState(val ready: Set<String> = emptySet(), val transfers: List<ImageTransfer> = emptyList(),
     val results: List<ImageResult> = emptyList(), val step: Int = 0, val totalSteps: Int = 0) {
     val downloading get() = transfers.any { it.active }

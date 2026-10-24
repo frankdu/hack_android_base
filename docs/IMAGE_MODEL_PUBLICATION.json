@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-24",
+  "status": "published_and_verified",
+  "account": "frankdu",
+  "workstationRoot": "192.168.4.103:/mnt/sda1/frankdu/litert-image-support",
+  "repositories": [
+    {
+      "repository": "frankdu/Bonsai-Image-ternary-4B-LiteRT",
+      "directory": "/mnt/sda1/frankdu/litert-image-support/publications/Bonsai-Image-ternary-4B-LiteRT",
+      "bytes": 6549205181,
+      "files": 49,
+      "allStagedFilesVerified": true,
+      "public": true,
+      "url": "https://huggingface.co/frankdu/Bonsai-Image-ternary-4B-LiteRT",
+      "revision": "165657b39eaeeb4e1326b98bbfa19a49a895f5e0",
+      "gated": false,
+      "verifiedFiles": 49,
+      "allFileSizesAndHashesMatch": true,
+      "anonymousGraphDownloadVerified": true
+    },
+    {
+      "repository": "frankdu/FLUX.2-klein-4B-LiteRT",
+      "directory": "/mnt/sda1/frankdu/litert-image-support/publications/FLUX.2-klein-4B-LiteRT",
+      "bytes": 7462318062,
+      "files": 38,
+      "allStagedFilesVerified": true,
+      "public": true,
+      "url": "https://huggingface.co/frankdu/FLUX.2-klein-4B-LiteRT",
+      "revision": "ce16220aacca7693f3b186466e18532d5ad646bb",
+      "gated": false,
+      "verifiedFiles": 38,
+      "allFileSizesAndHashesMatch": true,
+      "anonymousGraphDownloadVerified": true
+    },
+    {
+      "repository": "frankdu/SD-Turbo-LiteRT",
+      "directory": "/mnt/sda1/frankdu/litert-image-support/publications/SD-Turbo-LiteRT",
+      "bytes": 5032165208,
+      "files": 48,
+      "allStagedFilesVerified": true,
+      "public": true,
+      "url": "https://huggingface.co/frankdu/SD-Turbo-LiteRT",
+      "revision": "d4cc937ad9e51c8a78eb83dd9b99b7dbc1168dad",
+      "gated": false,
+      "verifiedFiles": 48,
+      "allFileSizesAndHashesMatch": true,
+      "anonymousGraphDownloadVerified": true
+    },
+    {
+      "repository": "frankdu/SDXL-Turbo-LiteRT",
+      "directory": "/mnt/sda1/frankdu/litert-image-support/publications/SDXL-Turbo-LiteRT",
+      "bytes": 13756884560,
+      "files": 96,
+      "allStagedFilesVerified": true,
+      "public": true,
+      "url": "https://huggingface.co/frankdu/SDXL-Turbo-LiteRT",
+      "revision": "7496c07ff0b70bc18441100b0b8b86f763cf8e8b",
+      "gated": false,
+      "verifiedFiles": 96,
+      "allFileSizesAndHashesMatch": true,
+      "anonymousGraphDownloadVerified": true
+    },
+    {
+      "repository": "frankdu/iris-3b-Turbo-LiteRT",
+      "directory": "/mnt/sda1/frankdu/litert-image-support/publications/iris-3b-Turbo-LiteRT",
+      "bytes": 13713023229,
+      "files": 43,
+      "allStagedFilesVerified": true,
+      "public": true,
+      "url": "https://huggingface.co/frankdu/iris-3b-Turbo-LiteRT",
+      "revision": "ac493279ffff17ee9bcd12f79cda62864d3eff2c",
+      "gated": false,
+      "verifiedFiles": 43,
+      "allFileSizesAndHashesMatch": true,
+      "anonymousGraphDownloadVerified": true
+    }
+  ],
+  "validation": {
+    "allFiveDesktopCpuGeneration": "PASS",
+    "packagedSdNewPrompt": "PASS",
+    "packagedSdxlNewPrompt": "PASS",
+    "packagedFluxRunner": "PASS",
+    "javaGaussianNoiseVsJvm": "BIT_EXACT",
+    "androidDeviceExecution": "NOT_VALIDATED"
+  },
+  "previousAttempt": {
+    "createdRepositories": 0,
+    "uploadedModels": 0,
+    "error": "Hugging Face HTTP 403: authenticated tokens on both machines have read role only"
+  },
+  "publicationAttempt": {
+    "createdRepositories": 5,
+    "uploadedModels": 5,
+    "verifiedFiles": 274,
+    "bytes": 46513596240,
+    "error": null
+  }
+}

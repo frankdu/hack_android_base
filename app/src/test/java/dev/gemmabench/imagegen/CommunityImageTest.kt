@@ -68,7 +68,11 @@ class CommunityImageTest {
                 assertTrue(m.files.any { it.filename.endsWith(".tflite") })
                 assertTrue(m.files.none { it.filename.endsWith(".gguf") || it.filename.endsWith(".litertlm") })
                 assertTrue(m.files.all { it.filename.startsWith(m.id + "/") })
-            } else assertTrue(m.files.isEmpty())
+            } else {
+                assertTrue(m.files.any { it.filename.endsWith("/manifest.json") })
+                assertTrue(m.files.any { it.filename.endsWith(".tflite") })
+                assertTrue(m.files.all { it.repository.startsWith("frankdu/") })
+            }
         }
     }
 

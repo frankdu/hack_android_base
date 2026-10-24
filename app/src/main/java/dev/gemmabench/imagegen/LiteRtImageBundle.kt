@@ -12,10 +12,10 @@ class LiteRtImageBundles(private val context: Context, private val portable: Boo
     private val gson = Gson()
     private val root get() = File(context.getExternalFilesDir(null), "image-litert")
     val soc get() = tensorSoc(Build.SOC_MODEL)
-    private fun directory(modelId: String) = File(root, "${modelId.removeSuffix("_LITERT")}/${if (portable) "portable" else requireNotNull(soc) { "Tensor G5/G6 required." }}")
+    fun directory(modelId: String) = File(root, "${modelId.removeSuffix("_LITERT")}/${if (portable) "portable" else requireNotNull(soc) { "Tensor G5/G6 required." }}")
 
     fun installed(): Set<String> = if (!portable && soc == null) emptySet() else ImageModels.all.filter {
-        if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else it.pipeline == ImagePipeline.NATIVE
+        if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else true
     }.mapNotNull { model ->
         runCatching { load(model.id); model.id }.getOrNull()
     }.toSet()
@@ -24,26 +24,12 @@ class LiteRtImageBundles(private val context: Context, private val portable: Boo
     fun verify(): String {
         require(portable || soc != null) { "Requires a Google Tensor G5 or G6 device." }
         val messages = ImageModels.all.filter {
-            if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else it.pipeline == ImagePipeline.NATIVE
+            if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else true
         }.mapNotNull { model ->
             val dir = directory(model.id)
             if (!File(dir, "manifest.json").isFile) return@mapNotNull null
             try {
-                val manifest = parse(dir, model.id)
-                val stamps = JsonObject()
-                manifest.getAsJsonObject("files").entrySet().forEach { (relative, spec) ->
-                    val file = safeFile(dir, relative)
-                    check(file.isFile && file.length() == spec.asJsonObject["bytes"].asLong) { "Missing or wrong-sized $relative" }
-                    check(sha256(file) == spec.asJsonObject["sha256"].asString) { "SHA-256 mismatch: $relative" }
-                    stamps.addProperty(relative, "${file.length()}:${file.lastModified()}")
-                }
-                val tokenizers = manifest.getAsJsonArray("externals").mapNotNull { it.asJsonObject["tokenizer"]?.asString }.distinct()
-                tokenizers.forEach { ImageBpeTokenizer(gson.fromJson(safeFile(dir, it).readText(), JsonObject::class.java)).validateFixtures() }
-                val marker = JsonObject().apply {
-                    addProperty("manifestSha256", sha256(File(dir, "manifest.json"))); add("stamps", stamps)
-                }
-                File(dir, ".verified.tmp").writeText(gson.toJson(marker))
-                check(File(dir, ".verified.tmp").renameTo(File(dir, ".verified")))
+                verifyModel(model.id)
                 "${model.name}: verified · ${if (portable) "portable LiteRT" else soc} bundle"
             } catch (e: Exception) {
                 File(dir, ".verified").delete()
@@ -51,6 +37,25 @@ class LiteRtImageBundles(private val context: Context, private val portable: Boo
             }
         }
         return messages.ifEmpty { listOf(if (portable) "No portable SD/SDXL bundles staged. See docs/IMAGE_LITERT.md." else "No compiled TPU bundles staged. See docs/IMAGE_TPU.md.") }.joinToString("\n")
+    }
+
+    fun verifyModel(modelId: String) {
+        val dir = directory(modelId)
+        val manifest = parse(dir, modelId)
+        val stamps = JsonObject()
+        manifest.getAsJsonObject("files").entrySet().forEach { (relative, spec) ->
+            val file = safeFile(dir, relative)
+            check(file.isFile && file.length() == spec.asJsonObject["bytes"].asLong) { "Missing or wrong-sized $relative" }
+            check(sha256(file) == spec.asJsonObject["sha256"].asString) { "SHA-256 mismatch: $relative" }
+            stamps.addProperty(relative, "${file.length()}:${file.lastModified()}")
+        }
+        val tokenizers = manifest.getAsJsonArray("externals").mapNotNull { it.asJsonObject["tokenizer"]?.asString }.distinct()
+        tokenizers.forEach { ImageBpeTokenizer(gson.fromJson(safeFile(dir, it).readText(), JsonObject::class.java)).validateFixtures() }
+        val marker = JsonObject().apply {
+            addProperty("manifestSha256", sha256(File(dir, "manifest.json"))); add("stamps", stamps)
+        }
+        File(dir, ".verified.tmp").writeText(gson.toJson(marker))
+        check(File(dir, ".verified.tmp").renameTo(File(dir, ".verified")))
     }
 
     fun load(modelId: String): Pair<File, JsonObject> {
@@ -73,7 +78,7 @@ class LiteRtImageBundles(private val context: Context, private val portable: Boo
         require(m["format"].asString == "word-image-litert-v1" && m["modelId"].asString == modelId.removeSuffix("_LITERT"))
         if (portable) require(!m["compiled"].asBoolean) { "Portable graphs must not contain target-specific AOT compilation." }
         else require(m["compiled"].asBoolean && m["targetSoc"].asString == soc) { "AOT bundle must match this phone's $soc." }
-        require(m["width"].asInt == 512 && m["height"].asInt == 512 && m["steps"].asInt == ImageModels.get(modelId).steps)
+        require(m["width"].asInt == ImageModels.get(modelId).width && m["height"].asInt == ImageModels.get(modelId).height && m["steps"].asInt == ImageModels.get(modelId).steps)
         val files = m.getAsJsonObject("files")
         files.keySet().forEach { safeFile(dir, it) }
         val tensors = m.getAsJsonArray("externals").map { it.asJsonObject["tensor"].asString }.toMutableSet()

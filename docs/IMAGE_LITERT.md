@@ -1,7 +1,15 @@
 # LiteRT text-to-image
 
-The Images screen includes five LiteRT entries alongside the three existing GGUF
-baselines. They run through LiteRT **2.3.0 CompiledModel**, independently of the
+The current UI focuses on four models: FLUX, Bonsai, SD-Turbo and SDXL-Turbo.
+Iris is no longer selectable. All four models now download in-app, with community
+sources preferred and verified frankdu mirrors used when needed. See
+[the current model selection and benchmark workflow](IMAGE_MODEL_SELECTION.md).
+The notes below also document the earlier five-model integration and its desktop checks.
+
+The Models and Images tabs include five LiteRT entries alongside the three existing
+GGUF baselines. Both tabs share installation status, per-file download progress,
+download/retry and cancel controls, and model-card links. The Models tab also offers
+staged-bundle verification and applies its Wi-Fi-only setting to new image downloads. They run through LiteRT **2.3.0 CompiledModel**, independently of the
 Gemma/LiteRT-LM engine. No Tensor SDK is needed for CPU or GPU. Tensor TPU remains
 a separate AOT bundle workflow; see [IMAGE_TPU.md](IMAGE_TPU.md).
 
@@ -20,9 +28,9 @@ GGUF and `.litertlm` files are not accepted as image graph inputs.
 
 ## Android use
 
-1. Open **Research Lab → Images** and choose an entry ending in **LiteRT**.
+1. Open **Research Lab → Models → Text-to-image models** and choose an entry ending in **LiteRT**.
 2. Download it, or stage an SD/SDXL portable bundle and tap **Verify staged LiteRT bundles**.
-3. Select **CPU** or **GPU**, enter the prompt and seed, and generate. The model's
+3. Open **Images**, select the model and **CPU** or **GPU**, enter the prompt and seed, and generate. The model's
    default step count is fixed. Use the 30-word benchmark to save comparisons.
 
 FLUX and Iris GPU mode requests FP32 GPU for every neural graph. Bonsai GPU mode
@@ -81,7 +89,7 @@ Source licenses are included; conversion does not change them.
 Use `litert run GRAPH.tflite --desktop --cpu` to inspect one graph. This exercises
 one graph with dummy inputs; a full pipeline check needs `validate_plan.py`.
 LiteRT CLI setup is isolated in a Python virtual environment, as required by its
-skill. No new model repository was published.
+skill. All five prepared pipelines are now [public on Hugging Face](IMAGE_MODEL_PUBLICATION.md), with pinned publication revisions and verified artifacts. The app catalog remains unchanged by publication.
 
 ## FLUX host reconstruction
 

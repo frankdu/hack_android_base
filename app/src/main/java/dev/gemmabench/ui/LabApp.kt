@@ -25,6 +25,7 @@ import dev.gemmabench.LabController
 import dev.gemmabench.LabState
 import dev.gemmabench.benchmark.*
 import dev.gemmabench.download.*
+import dev.gemmabench.imagegen.ImageModels
 import java.util.Locale
 
 private val Ink = Color(0xFF153B32)
@@ -84,7 +85,7 @@ fun LabApp(state: LabState, controller: LabController) {
                     5 -> ImageLabPage(state, controller)
                 }
                 if (tab != 4) {
-                    Text(if (tab == 5) "Offline image prototype · ARM CPU · PNG and JSON exports"
+                    Text(if (tab == 5) "Offline LiteRT images · CPU / GPU / available TPU · PNG and JSON exports"
                         else "Prototype 0.1 · Native token counts · No automatic backend fallback",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
@@ -148,6 +149,21 @@ private fun ModelsPage(state: LabState, controller: LabController) {
     }
     Text("E4B TPU is unavailable: no official Tensor artifact is published.", style = MaterialTheme.typography.bodySmall)
     Text("Downloads continue when you leave the app. Android retries interrupted transfers; return here to see progress. Completed files are checked before becoming ready.", style = MaterialTheme.typography.bodySmall)
+    Text("Text-to-image models", style = MaterialTheme.typography.titleLarge)
+    Text("Download and manage picture-generation models here, then generate pictures in Images. Both tabs show the same download progress and installation status.",
+        style = MaterialTheme.typography.bodySmall)
+    ImageModels.liteRt.forEach { model ->
+        ImageModelCard(model, state, controller, wifiOnly, showArtifacts = advanced)
+    }
+    if (advanced) {
+        Text("Legacy GGUF image baselines", style = MaterialTheme.typography.titleMedium)
+        ImageModels.legacy.forEach { ImageModelCard(it, state, controller, wifiOnly, showArtifacts = true) }
+    }
+    Text("All four LiteRT models download here. Community artifacts are preferred; verified mirrors are used when needed. TPU requires a separate bundle compiled for this phone.",
+        style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = controller::verifyImageTpuBundles, enabled = !state.unavailable) {
+        Text("Verify staged LiteRT bundles")
+    }
     TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced options" else "Advanced · manual import and metadata") }
     if (advanced) {
         OutlinedButton(onClick = controller::importStaged, enabled = !state.unavailable, modifier = Modifier.fillMaxWidth()) { Text("Import files staged by ADB") }

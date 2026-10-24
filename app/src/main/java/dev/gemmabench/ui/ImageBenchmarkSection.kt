@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import dev.gemmabench.LabController
@@ -23,11 +24,12 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedModelId: String) {
     val benchmark = state.imageBenchmark
-    var models by rememberSaveable(selectedModelId) { mutableStateOf(setOf(selectedModelId)) }
-    var methods by rememberSaveable { mutableStateOf(setOf(ImageMethod.CPU.name, ImageMethod.GPU.name)) }
+    var models by rememberSaveable("litert-four-models-v1") { mutableStateOf(ImageModels.liteRt.map { it.id }.toSet()) }
+    var methods by rememberSaveable { mutableStateOf(ImageMethod.entries.map { it.name }.toSet()) }
     var timeout by rememberSaveable { mutableIntStateOf(20) }
     var inputsExpanded by rememberSaveable { mutableStateOf(false) }
     var viewedId by rememberSaveable { mutableStateOf("") }
@@ -41,32 +43,56 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         if (uri != null && savePath.isNotEmpty()) controller.exportWordImage(uri, savePath)
     }
     HorizontalDivider()
-    Text("30-word generation benchmark", style = MaterialTheme.typography.headlineSmall)
+    Text("4-model · 30-word benchmark", style = MaterialTheme.typography.headlineSmall)
     Text("One click runs 30 fixed word prompts for every selected model and method. The same word uses the same prompt and seed across comparisons.")
-    Text("Each model + CPU/GPU/TPU combination runs all 30 words, then unloads before the next combination. Speed includes loading on the first image and generation/saving on every image; no warm-up is excluded. TPU streams one compiled shard at a time. Resolution follows each model: FLUX LiteRT 256 px, Bonsai/SD 512 px, Iris 768 px. Compare speed together with resolution and quality. Average and mean are the same statistic; median is shown too.", style = MaterialTheme.typography.bodySmall)
+    Text("Timings include model loading, generation and PNG saving for every image; no warm-up is excluded. FLUX generates 256 × 256 images; Bonsai, SD-Turbo and SDXL-Turbo generate 512 × 512. Compare timings alongside resolution and image quality.", style = MaterialTheme.typography.bodySmall)
     Text("Models", style = MaterialTheme.typography.titleMedium)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ImageModels.all.forEach { model ->
-            FilterChip(selected = model.id in models, onClick = { models = if (model.id in models) models - model.id else models + model.id },
-                enabled = !state.busy && benchmark.methods.any { it.supports(model.id) }, label = { Text("${model.name} · ${model.steps} step${if (model.steps == 1) "" else "s"}") })
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ImageModels.liteRt.forEach { model ->
+            FilterChip(modifier = Modifier.testTag("benchmark-model-${model.id}"), selected = model.id in models, onClick = { models = if (model.id in models) models - model.id else models + model.id },
+                enabled = !state.busy, label = { Text(model.name.removeSuffix(" · LiteRT")) })
         }
     }
-    Text("TPU bundles are separate from the CPU/GPU downloads. Stage a portable LiteRT or Tensor G5/G6 bundle with scripts/push-image-litert.py, then verify it here. Verification checks hashes and tokenizer parity; generation checks runtime compatibility.", style = MaterialTheme.typography.bodySmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { models = ImageModels.liteRt.map { it.id }.toSet() }, enabled = !state.busy) { Text("Select all 4") }
+        TextButton(onClick = { models = ImageModels.liteRt.filter { model -> benchmark.methods.any { it.supports(model.id) } }.map { it.id }.toSet() },
+            enabled = !state.busy) { Text("Select installed") }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Model / backend", Modifier.weight(1.8f), style = MaterialTheme.typography.labelMedium)
+            ImageMethod.entries.forEach { Text(it.label, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium) }
+        }
+        ImageModels.liteRt.forEach { model ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(model.name.removeSuffix(" · LiteRT"), Modifier.weight(1.8f), style = MaterialTheme.typography.bodySmall)
+                ImageMethod.entries.forEach { method ->
+                    val support = benchmark.methods.firstOrNull { it.method == method }
+                    Text(when {
+                        support?.supports(model.id) == true -> "Ready"
+                        support?.compatible(model.id) == true -> "Download first"
+                        else -> "Unavailable"
+                    }, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+    Text("CPU/GPU models download from Models or Generate image. TPU requires a verified bundle compiled for this phone and the model's output size. Unavailable combinations are recorded as skipped, with a reason.", style = MaterialTheme.typography.bodySmall)
     OutlinedButton(onClick = controller::verifyImageTpuBundles, enabled = !state.unavailable) { Text("Verify staged LiteRT bundles") }
     Text("Generation methods", style = MaterialTheme.typography.titleMedium)
     benchmark.methods.forEach { support ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Checkbox(checked = support.available && support.method.name in methods,
+            Checkbox(checked = support.method.name in methods,
                 onCheckedChange = { checked -> methods = if (checked) methods + support.method.name else methods - support.method.name },
-                enabled = support.available && !state.busy)
+                enabled = !state.busy)
             Column(Modifier.weight(1f).padding(top = 8.dp)) {
                 Text("${support.method.label} · ${if (support.available) "available" else "unavailable"}", style = MaterialTheme.typography.titleSmall)
                 Text(support.method.detail, style = MaterialTheme.typography.bodySmall)
-                Text(support.reason, style = MaterialTheme.typography.bodySmall)
+                Text(if (support.method == ImageMethod.TPU) support.reasonFor(selectedModelId) else support.reason, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
-    Text("A LiteRT failure skips the affected model/method. A Vulkan failure skips remaining GGUF GPU jobs. A TPU failure skips the affected model’s TPU jobs. Other methods continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
+    Text("A backend failure skips the affected model/backend combination. The other models and backends continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
     Text("Per-image timeout", style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(5, 10, 20).forEach { minutes -> FilterChip(selected = timeout == minutes,
@@ -77,13 +103,14 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         Text("${index + 1}. ${input.word} · ${input.category} · seed ${input.seed}", style = MaterialTheme.typography.titleSmall)
         SelectionContainer { Text(input.prompt, style = MaterialTheme.typography.bodySmall) }
     }
-    val runnableMethods = benchmark.methods.filter { it.available && it.method.name in methods }.map { it.method }.toSet()
+    val runnableMethods = benchmark.methods.filter { it.method.name in methods }.map { it.method }.toSet()
     val combinations = models.sumOf { id -> benchmark.methods.count { it.method in runnableMethods && it.supports(id) } }
     val jobs = combinations * ImageBenchmarkSuite.prompts.size
-    Text("Only installed model/method combinations run. TPU uses separately converted weights and sampler graphs, so a CPU/GPU/TPU comparison includes runtime and numerical differences as well as hardware. Review each image’s backend and quality score.", style = MaterialTheme.typography.bodySmall)
-    Text("$jobs images planned · 30 words × $combinations installed model/method combinations. This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
+    val skippedJobs = (models.size * runnableMethods.size - combinations) * ImageBenchmarkSuite.prompts.size
+    Text("Only installed model/backend combinations run. TPU uses separately converted weights and sampler graphs, so a CPU/GPU/TPU comparison includes runtime and numerical differences as well as hardware. Review each image’s backend and quality score.", style = MaterialTheme.typography.bodySmall)
+    Text("$jobs images to generate · $skippedJobs unavailable jobs recorded as skipped · 30 words × $combinations runnable combinations. This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
     Button(onClick = { viewedId = ""; controller.startImageBenchmark(models, runnableMethods, timeout) },
-        enabled = !state.unavailable && models.isNotEmpty() && models.all { id -> benchmark.methods.any { it.method in runnableMethods && it.supports(id) } } && runnableMethods.isNotEmpty(),
+        enabled = !state.unavailable && models.isNotEmpty() && jobs > 0 && runnableMethods.isNotEmpty(),
         modifier = Modifier.fillMaxWidth()) { Text("Run 30-word benchmark") }
     if (state.imageBenchmarkRunning) {
         val active = benchmark.runs.firstOrNull { it.id == benchmark.activeRunId }
@@ -100,7 +127,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         if (displayed.id != latest?.id) TextButton(onClick = { viewedId = "" }) { Text("View most recent run") }
         Text("${date(displayed.startedAtEpochMs)} · ${displayed.status.name.lowercase().replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.titleMedium)
         Text("${displayed.successful} generated · ${displayed.failed} failed · ${displayed.pending} pending · ${displayed.samples.count { it.status == ImageSampleStatus.SKIPPED }} skipped", style = MaterialTheme.typography.bodySmall)
-        Text(if (displayed.retainsEngine) "Loading is shared across 30 words per combination; memory is released between combinations."
+        Text(if (displayed.retainsEngine) "One worker per combination; LiteRT graphs/environments reload per image, and those costs are included. Memory is released between combinations."
             else "Historical protocol: fresh worker and model loading for every image.", style = MaterialTheme.typography.bodySmall)
         Text(displayed.device, style = MaterialTheme.typography.labelSmall)
         Text("${displayed.suiteVersion} · timeout ${displayed.timeoutMinutes} min/image", style = MaterialTheme.typography.labelSmall)
@@ -193,7 +220,7 @@ private fun ImageBenchmarkSampleCard(sample: ImageBenchmarkSample, enabled: Bool
                     ?: Text("Image file is unavailable.", style = MaterialTheme.typography.bodySmall)
                 Text("End-to-end ${sample.elapsedMs?.let { seconds(it.toDouble()) } ?: "—"} s · generation ${seconds(result.totalMs.toDouble())} s", style = MaterialTheme.typography.bodySmall)
                 Text("Load/encode ${seconds(result.loadAndEncodeMs.toDouble())} s · denoise ${seconds(result.denoiseMs.toDouble())} s · decode/save ${seconds(result.decodeAndSaveMs.toDouble())} s", style = MaterialTheme.typography.bodySmall)
-                Text("${result.backend} · 512 × 512 · process peak ${String.format(Locale.US, "%.2f", result.peakRssKb / 1048576.0)} GiB", style = MaterialTheme.typography.bodySmall)
+                Text("${result.backend} · ${result.width} × ${result.height} · process peak ${String.format(Locale.US, "%.2f", result.peakRssKb / 1048576.0)} GiB", style = MaterialTheme.typography.bodySmall)
                 Text("Quality rating", style = MaterialTheme.typography.titleSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     (1..5).forEach { rating -> FilterChip(selected = sample.quality == rating, onClick = { onRate(rating) }, enabled = enabled, label = { Text("$rating") }) }

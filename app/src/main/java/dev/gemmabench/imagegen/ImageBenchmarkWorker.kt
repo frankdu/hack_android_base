@@ -47,7 +47,7 @@ class ImageBenchmarkWorkerService : Service() {
                         require(dir.path.startsWith(benchmarkRoot) || dir == File(filesDir, "word-images").canonicalFile)
                         request.getString("bundleManifestSha256")?.let { expected ->
                             if (verifiedBundleHash == null) {
-                                val bundle = LiteRtImageBundles(this, portable = model.pipeline == ImagePipeline.LITERT_PLAN).load(model.id).first
+                                val bundle = LiteRtImageBundles(this, portable = method != ImageMethod.TPU).load(model.id).first
                                 require(expected == LiteRtImageBundles.sha256(File(bundle, "manifest.json"))) { "LiteRT bundle changed after this run was planned." }
                                 verifiedBundleHash = expected
                             }
@@ -202,20 +202,11 @@ class ImageBenchmarkClient(private val context: Context) {
 
 fun imageMethodSupport(context: Context): List<ImageMethodSupport> {
     val cpu = Build.SUPPORTED_ABIS.contains("arm64-v8a")
-    val gpu = context.packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x00401000)
-    val built = runCatching { DiffusionNative.vulkanBuilt() }.getOrDefault(false)
+    val nativeGpu = context.packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x00401000) &&
+        runCatching { DiffusionNative.vulkanBuilt() }.getOrDefault(false)
+    val hardware = LiteRtImageHardware.available(context)
     val bundles = LiteRtImageBundles(context)
-    val installed = bundles.installed()
-    val gguf = ImageModelStore(context).ready()
-    val gpuModels = gguf.filter { id -> ImageModels.get(id).pipeline != ImagePipeline.NATIVE || (gpu && built) }.toSet()
-    return listOf(
-        ImageMethodSupport(ImageMethod.CPU, cpu, "Native ARM64 or LiteRT CPU, according to model format.", gguf),
-        ImageMethodSupport(ImageMethod.GPU, cpu && gpuModels.isNotEmpty(),
-            "LiteRT FP32 GPU for LiteRT models; Vulkan denoiser for GGUF. Bonsai text/VAE use CPU. Device compatibility is checked during generation.", gpuModels),
-        ImageMethodSupport(ImageMethod.TPU, installed.isNotEmpty(), when {
-            bundles.soc == null -> "Requires Google Tensor G5/G6."
-            installed.isEmpty() -> "Stage matching LiteRT AOT bundles, then verify below. GGUF and Gemma files cannot run this pipeline."
-            else -> "Verified bundles: ${installed.joinToString()}. Device execution and image quality remain experimental."
-        }, installed),
-    )
+    return imageBackendSupport(ImageModels.all, ImageModelStore(context).ready(), bundles.installed(), cpu,
+        com.google.ai.edge.litert.Accelerator.GPU in hardware,
+        com.google.ai.edge.litert.Accelerator.NPU in hardware, nativeGpu, bundles.soc)
 }

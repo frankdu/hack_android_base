@@ -138,8 +138,8 @@ class LiteRtImageExecutor(private val context: Context, private val method: Imag
         }
         progress(steps, steps)
         val rgb = tensors[final] as? FloatArray ?: error("Expected float32 RGB output")
-        check(rgb.size == 3 * 512 * 512)
-        val size = 512 * 512
+        val size = model.width * model.height
+        check(rgb.size == 3 * size)
         val pixels = IntArray(size) { i ->
             fun channel(offset: Int) = (rgb[offset + i].coerceIn(0f, 1f) * 255 + 0.5f).toInt()
             (0xff shl 24) or (channel(0) shl 16) or (channel(size) shl 8) or channel(size * 2)

@@ -1,5 +1,7 @@
 # Images: 30-word speed and quality benchmark
 
+For the current four-model LiteRT CPU/GPU/available-TPU workflow, source fallback and skipped-combination reporting, see [IMAGE_MODEL_SELECTION.md](IMAGE_MODEL_SELECTION.md). Earlier native benchmark results remain historical.
+
 Open **Settings → Research Lab → Images**, then scroll to **30-word generation benchmark** at the end of the tab.
 
 Select one or more installed models and the available CPU/GPU methods, then press **Run 30-word benchmark** once. Each selected model/method generates all **30 fixed vocabulary pictures**. For example, one model with CPU and GPU schedules 60 images; three models with both methods schedule 180. No model downloads start automatically. This can take hours with the current models.

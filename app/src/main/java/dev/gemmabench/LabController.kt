@@ -125,19 +125,25 @@ class LabController(private val app: Application) {
                 val selected = ImageModels.all.filter { it.id in modelIds }
                 require(selected.isNotEmpty()) { "Select at least one model." }
                 val available = imageMethodSupport(app)
-                val requested = available.filter { it.method in methods || !it.available }
+                val requested = available.filter { it.method in methods }
                 require(requested.any { it.available && it.method in methods }) { "Select an available image generation method." }
-                require(selected.all { model -> requested.any { it.method in methods && it.supports(model.id) } }) {
-                    "Each selected model needs a verified bundle for at least one selected method."
+                require(selected.any { model -> requested.any { it.method in methods && it.supports(model.id) } }) {
+                    "Install at least one selected model/backend combination first."
                 }
                 runtime.unload()
                 val now = System.currentTimeMillis()
                 val plan = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · ${android.os.Build.SOC_MODEL} · ${android.os.Build.FINGERPRINT}",
-                    selected, requested, timeoutMinutes)
-                val bundleHashes = selected.filter { model -> model.pipeline == ImagePipeline.LITERT_PLAN || plan.samples.any { it.modelId == model.id && it.method == ImageMethod.TPU } }
-                    .associate { model -> model.id to LiteRtImageBundles(app, portable = model.pipeline == ImagePipeline.LITERT_PLAN).load(model.id).first.let { LiteRtImageBundles.sha256(java.io.File(it, "manifest.json")) } }
-                val run = plan.copy(samples = plan.samples.map { sample -> sample.copy(bundleManifestSha256 = bundleHashes[sample.modelId].takeIf { sample.method == ImageMethod.TPU || ImageModels.get(sample.modelId).pipeline == ImagePipeline.LITERT_PLAN }) })
+                    selected, requested, timeoutMinutes, includeUnavailable = selected.all { it.pipeline != ImagePipeline.NATIVE })
+                val bundleHashes = plan.samples.filter { it.status == ImageSampleStatus.PENDING &&
+                    (it.method == ImageMethod.TPU || ImageModels.get(it.modelId).pipeline == ImagePipeline.LITERT_PLAN) }
+                    .distinctBy { it.modelId to it.method }.associate { sample ->
+                        val dir = LiteRtImageBundles(app, portable = sample.method != ImageMethod.TPU).load(sample.modelId).first
+                        (sample.modelId to sample.method) to LiteRtImageBundles.sha256(java.io.File(dir, "manifest.json"))
+                    }
+                val run = plan.copy(samples = plan.samples.map { sample ->
+                    sample.copy(bundleManifestSha256 = bundleHashes[sample.modelId to sample.method])
+                })
                 imageBenchmarkStore.save(run)
                 updateImageBenchmark(run)
                 mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = run.id, methods = available)) }
@@ -162,8 +168,8 @@ class LabController(private val app: Application) {
                 val pending = run.samples.filter { it.status == ImageSampleStatus.PENDING }
                 val available = imageMethodSupport(app)
                 require(pending.all { sample -> available.any { it.method == sample.method && it.supports(sample.modelId) } }) { "A required method is unavailable on this device/build." }
-                pending.filter { it.method == ImageMethod.TPU || ImageModels.get(it.modelId).pipeline == ImagePipeline.LITERT_PLAN }.distinctBy { it.modelId }.forEach { sample ->
-                    val directory = LiteRtImageBundles(app, portable = ImageModels.get(sample.modelId).pipeline == ImagePipeline.LITERT_PLAN).load(sample.modelId).first
+                pending.filter { it.method == ImageMethod.TPU || ImageModels.get(it.modelId).pipeline == ImagePipeline.LITERT_PLAN }.distinctBy { it.modelId to it.method }.forEach { sample ->
+                    val directory = LiteRtImageBundles(app, portable = sample.method != ImageMethod.TPU).load(sample.modelId).first
                     require(sample.bundleManifestSha256 == LiteRtImageBundles.sha256(java.io.File(directory, "manifest.json"))) {
                         "The LiteRT bundle changed. Start a new benchmark to preserve comparable results."
                     }

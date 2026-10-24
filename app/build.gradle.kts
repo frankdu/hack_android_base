@@ -49,6 +49,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     implementation("com.google.ai.edge.litert:litert:2.3.0")
+    implementation("com.google.ai.edge.litert:litert-gpu:2.3.0")
     // Includes the Tensor dispatcher and optional vendor-library manifest declarations.
     // A custom, version-matched runtime directory can still override the packaged runtime.
     if (!providers.gradleProperty("tensorNpuLibDir").isPresent) {
