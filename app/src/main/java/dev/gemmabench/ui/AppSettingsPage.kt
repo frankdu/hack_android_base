@@ -34,7 +34,7 @@ fun AppSettingsPage(preferences: AppPreferencesStore, speech: SpeechController,
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(onClick = onOpenResearchLab, modifier = Modifier.fillMaxWidth()) {
             ListItem(headlineContent = { Text("Research Lab") },
-                supportingContent = { Text("Models, benchmarks, and photo experiments") },
+                supportingContent = { Text("Models, benchmarks, photos, and image generation") },
                 trailingContent = { Text("›", style = MaterialTheme.typography.headlineSmall) })
         }
         if (dev.gemmabench.BuildConfig.DEBUG) {

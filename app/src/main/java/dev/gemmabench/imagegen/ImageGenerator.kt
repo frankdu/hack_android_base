@@ -1,0 +1,59 @@
+package dev.gemmabench.imagegen
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Debug
+import android.os.SystemClock
+import com.google.gson.GsonBuilder
+import java.io.File
+import java.util.concurrent.CancellationException
+
+class ImageGenerator(private val context: Context, private val store: ImageModelStore) {
+    private val gson = GsonBuilder().setPrettyPrinting().create()
+    private fun outputDirectory() = File(context.filesDir, "word-images").apply { mkdirs() }
+    fun results(): List<ImageResult> = outputDirectory().listFiles().orEmpty()
+        .filter { it.extension == "json" }.sortedByDescending { it.name }.take(24)
+        .mapNotNull { file -> runCatching { gson.fromJson(file.readText(), ImageResult::class.java) }.getOrNull() }
+        .filter { File(it.imagePath).isFile }
+
+    fun generate(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
+        steps: Int, progress: (Int, Int) -> Unit): ImageResult {
+        require(model.id in store.ready()) { "Download and verify all ${model.name} files first." }
+        require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank()) { "Enter a word, category and prompt." }
+        require(prompt.length <= 2000) { "Use a prompt shorter than 2000 characters." }
+        require(steps in 1..4 && seed >= 0) { "Steps must be 1–4 and seed must be a non-negative integer." }
+        val totalStart = SystemClock.elapsedRealtime()
+        val paths = model.files.map { store.file(it).absolutePath }
+        val nativeStart = SystemClock.elapsedRealtime()
+        var denoiseStart = nativeStart
+        var denoiseEnd = nativeStart
+        val pixels = DiffusionNative.generate(paths[0], paths.getOrElse(1) { "" }, paths.getOrElse(2) { "" },
+            prompt, model.flux, steps, seed, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)) { step, total, _ ->
+                if (total == steps) {
+                    if (step == 0) denoiseStart = SystemClock.elapsedRealtime()
+                    if (step == total) denoiseEnd = SystemClock.elapsedRealtime()
+                    progress(step, total)
+                }
+            } ?: throw CancellationException("Image generation stopped.")
+        val nativeMs = SystemClock.elapsedRealtime() - nativeStart
+        check(pixels.size == 512 * 512) { "Unexpected image dimensions from native runtime." }
+        val timestamp = System.currentTimeMillis()
+        val file = File(outputDirectory(), "$timestamp-${model.id}.png")
+        val bitmap = Bitmap.createBitmap(pixels, 512, 512, Bitmap.Config.ARGB_8888)
+        try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+        finally { bitmap.recycle() }
+        val result = ImageResult(model.id, model.name, word.trim(), category.trim(), prompt, seed, steps,
+            SystemClock.elapsedRealtime() - totalStart, nativeMs, highWaterRssKb(), file.absolutePath, timestamp,
+            model.files.associate { it.filename to it.sha256 }, "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.SOC_MODEL}",
+            loadAndEncodeMs = denoiseStart - nativeStart, denoiseMs = (denoiseEnd - denoiseStart).coerceAtLeast(0),
+            decodeAndSaveMs = (SystemClock.elapsedRealtime() - denoiseEnd).coerceAtLeast(0))
+        File(outputDirectory(), file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
+        return result
+    }
+    private fun highWaterRssKb(): Long = runCatching {
+        File("/proc/self/status").useLines { lines ->
+            lines.first { it.startsWith("VmHWM:") }.substringAfter(":").trim().substringBefore(" ").toLong()
+        }
+    }.getOrElse { Debug.getNativeHeapAllocatedSize() / 1024 }
+}

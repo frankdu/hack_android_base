@@ -12,6 +12,7 @@ import dev.gemmabench.photos.*
 import dev.gemmabench.people.*
 import dev.gemmabench.settings.*
 import dev.gemmabench.voice.voiceContextTokens
+import dev.gemmabench.imagegen.*
 import com.google.gson.GsonBuilder
 import java.util.concurrent.Executors
 import kotlinx.coroutines.*
@@ -42,10 +43,12 @@ data class LabState(
     val photoBatchProgress: PhotoBatchProgress? = null,
     val people: PeopleState = PeopleState(),
     val preferredLlmFamily: ModelSlot? = null,
+    val images: ImageLabState = ImageLabState(),
+    val imageGenerating: Boolean = false,
 ) {
     val defaultLlm: LocalLlmChoice? get() = selectLocalLlm(models, tpuSupport, preferredLlmFamily)
     val downloadsActive: Boolean get() = downloads.any { it.active }
-    val unavailable: Boolean get() = busy || downloadsActive
+    val unavailable: Boolean get() = busy || downloadsActive || images.downloading
 }
 
 /** Application-owned worker survives rotation. JNI resources are only closed on this worker. */
@@ -55,6 +58,8 @@ class LabController(private val app: Application) {
     private val storage = LabStorage(app)
     private val downloads = SystemModelDownloads(app)
     private val runtime = LiteRtRuntime(app, storage::file)
+    private val imageModels = ImageModelStore(app)
+    private val imageGenerator = ImageGenerator(app, imageModels)
     private val photoLibrary = PhotoLibrary(app)
     private val photoCache by lazy { PhotoAnalysisCache(PhotoCacheDatabase.getInstance(app).photoAnalysis()) }
     private val peopleRepository by lazy { PeopleRepository(PhotoCacheDatabase.getInstance(app)) }
@@ -78,13 +83,116 @@ class LabController(private val app: Application) {
                     tpuSupport = runtime.tpuSupport,
                     progress = "Ready · all inference stays on this device.",
                     downloads = downloads.statuses(),
+                    images = ImageLabState(ready = imageModels.ready(), results = imageGenerator.results()),
                 ) }
             } catch (e: Exception) { fail(e) }
             finally { finish() }
             while (isActive) {
                 try { refreshDownloads() } catch (e: Exception) { fail(e) }
+                try { refreshImageDownloads() } catch (e: Exception) { fail(e) }
                 delay(1000)
             }
+        }
+    }
+
+    private fun refreshImageDownloads() {
+        synchronized(this) {
+            if (state.value.busy) return
+            mutable.update { it.copy(busy = true) }
+        }
+        try {
+            val transfers = imageModels.refresh { filename ->
+                mutable.update { it.copy(busy = true, progress = "Verifying $filename…") }
+            }
+            val ready = imageModels.ready()
+            mutable.update { it.copy(images = it.images.copy(ready = ready, transfers = transfers),
+                progress = if (ready != it.images.ready && transfers.none { t -> t.active })
+                    "Image model files verified and ready." else it.progress) }
+        } finally { finish() }
+    }
+
+    fun downloadImageModel(id: String, wifiOnly: Boolean) {
+        if (!begin("Starting image model download…")) return
+        scope.launch {
+            try {
+                runtime.unload()
+                val model = ImageModels.get(id)
+                imageModels.enqueue(model, wifiOnly)
+                val transfers = imageModels.refresh { }
+                mutable.update { it.copy(engineRetained = false, images = it.images.copy(transfers = transfers),
+                    progress = "${model.name} download started. Android manages the transfer.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    fun cancelImageDownload(id: String) {
+        if (state.value.busy) return
+        scope.launch {
+            try {
+                imageModels.cancel(id)
+                val transfers = imageModels.refresh { }
+                mutable.update { it.copy(images = it.images.copy(transfers = transfers), progress = "Image download canceled.") }
+            } catch (e: Exception) { fail(e) }
+        }
+    }
+
+    fun generateWordImage(id: String, word: String, category: String, prompt: String, seed: Long, steps: Int) {
+        if (!begin("Loading image model on ARM CPU…", inference = true)) return
+        try { DiffusionNative.resetStop() }
+        catch (e: LinkageError) {
+            mutable.update { it.copy(error = "Native image runtime unavailable: ${e.message}") }
+            finish()
+            return
+        }
+        mutable.update { it.copy(imageGenerating = true, images = it.images.copy(step = 0, totalSteps = steps)) }
+        scope.launch {
+            try {
+                runtime.unload()
+                mutable.update { it.copy(engineRetained = false) }
+                val result = imageGenerator.generate(ImageModels.get(id), word, category, prompt, seed, steps) { step, total ->
+                    mutable.update { it.copy(progress = if (step >= total) "Decoding and saving image… · ARM CPU"
+                        else "Generating image · step $step / $total · ARM CPU",
+                        images = it.images.copy(step = step, totalSteps = total)) }
+                }
+                mutable.update { it.copy(images = it.images.copy(results = (listOf(result) + it.images.results).take(24)),
+                    progress = "${result.modelName} image saved · ${result.totalMs / 1000.0} s including model load.") }
+            } catch (_: CancellationException) {
+                mutable.update { it.copy(progress = "Image generation stopped.") }
+            } catch (e: Exception) { fail(e) }
+            finally {
+                mutable.update { it.copy(imageGenerating = false) }
+                finish()
+            }
+        }
+    }
+
+    fun exportImageResults(uri: Uri) {
+        if (!begin("Exporting image research results…")) return
+        scope.launch {
+            try {
+                app.contentResolver.openOutputStream(uri, "wt").use {
+                    requireNotNull(it).write(GsonBuilder().setPrettyPrinting().create()
+                        .toJson(state.value.images.results).toByteArray(Charsets.UTF_8))
+                }
+                mutable.update { it.copy(progress = "Image research results exported.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
+        }
+    }
+
+    fun exportWordImage(uri: Uri, path: String) {
+        if (!begin("Saving generated image…")) return
+        scope.launch {
+            try {
+                require(state.value.images.results.any { it.imagePath == path })
+                app.contentResolver.openOutputStream(uri, "wt").use { output ->
+                    requireNotNull(output)
+                    java.io.File(path).inputStream().use { it.copyTo(output) }
+                }
+                mutable.update { it.copy(progress = "Generated image saved.") }
+            } catch (e: Exception) { fail(e) }
+            finally { finish() }
         }
     }
 
@@ -529,7 +637,9 @@ class LabController(private val app: Application) {
     fun stop() {
         if (!state.value.runningInference) return
         mutable.update { it.copy(stopRequested = true, progress = "Stopping… Waiting for the active native call to return.") }
-        try { runner.stop() } catch (e: Exception) { fail(e) }
+        try {
+            if (state.value.imageGenerating) DiffusionNative.requestStop() else runner.stop()
+        } catch (e: Exception) { fail(e) }
     }
 
     fun unload() {

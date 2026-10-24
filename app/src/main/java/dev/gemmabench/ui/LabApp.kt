@@ -41,7 +41,7 @@ private val colors = lightColorScheme(
 fun LabApp(state: LabState, controller: LabController) {
     MaterialTheme(colorScheme = colors) {
         var tab by rememberSaveable { mutableIntStateOf(0) }
-        val tabs = listOf("Models", "Benchmark", "Playground", "Results", "Photos")
+        val tabs = listOf("Models", "Benchmark", "Playground", "Results", "Photos", "Images")
         Scaffold(
             containerColor = Paper,
             bottomBar = {
@@ -49,8 +49,8 @@ fun LabApp(state: LabState, controller: LabController) {
                     tabs.forEachIndexed { index, title ->
                         NavigationBarItem(
                             selected = tab == index, onClick = { tab = index },
-                            icon = { Text(listOf("◈", "▥", "✳", "≡", "▧")[index], style = MaterialTheme.typography.titleLarge) },
-                            label = { Text(title) },
+                            icon = { Text(listOf("◈", "▥", "✳", "≡", "▧", "✧")[index], style = MaterialTheme.typography.titleLarge) },
+                            label = { Text(when (title) { "Benchmark" -> "Bench"; "Playground" -> "Prompt"; else -> title }) },
                         )
                     }
                 }
@@ -81,9 +81,12 @@ fun LabApp(state: LabState, controller: LabController) {
                     2 -> RunPage(state, controller, playground = true)
                     3 -> ResultsPage(state, controller)
                     4 -> PhotosPage(state, controller, Modifier.weight(1f))
+                    5 -> ImageLabPage(state, controller)
                 }
                 if (tab != 4) {
-                    Text("Prototype 0.1 · Native token counts · No automatic backend fallback", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (tab == 5) "Offline image prototype · ARM CPU · PNG and JSON exports"
+                        else "Prototype 0.1 · Native token counts · No automatic backend fallback",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
                 }
             }
@@ -95,7 +98,7 @@ fun LabApp(state: LabState, controller: LabController) {
 private fun StatusCard(state: LabState, controller: LabController) {
     Card(colors = CardDefaults.cardColors(containerColor = Ink)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (state.downloadsActive && !state.busy) "Model downloads in progress · you can leave the app." else state.progress,
+            Text(if ((state.downloadsActive || state.images.downloading) && !state.busy) "Model downloads in progress · you can leave the app." else state.progress,
                 color = Color.White, style = MaterialTheme.typography.bodyMedium)
             val photoProgress = state.photoBatchProgress
             if (state.busy && photoProgress != null) {

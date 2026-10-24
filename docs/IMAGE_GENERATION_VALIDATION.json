@@ -1,0 +1,103 @@
+{
+  "researchDate": "2026-10-23",
+  "device": "Pixel 10 Pro Fold / Tensor G5",
+  "backend": "ARM CPU, max 4 threads",
+  "validation": "Single smoke runs, not repeated thermal-controlled benchmarks. Pixel 11 not tested.",
+  "results": [
+    {
+      "backend": "ARM CPU",
+      "category": "Fruit",
+      "createdAtEpochMs": 1792803385269,
+      "device": "Google Pixel 10 Pro Fold \u00b7 Tensor G5",
+      "height": 512,
+      "imagePath": "artifacts/image-validation/sd-turbo-apple.png",
+      "modelHashes": {
+        "sd_turbo-f16-q8_0.gguf": "d50be7655f0a554cf8041c145d88b210bd5f3c545423119dee62ae08cae51580"
+      },
+      "modelId": "SD_TURBO",
+      "modelName": "SD-Turbo",
+      "nativeMs": 69609,
+      "peakRssKb": 2534800,
+      "prompt": "apple, recognizable features, a simple setting appropriate to Fruit. Children's vocabulary illustration, category: Fruit. Clear subject, accurate proportions, bright natural colors, soft light, uncluttered composition. Show the meaning visually. No text, letters, labels, watermark or collage.",
+      "runtime": "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
+      "seed": 42,
+      "steps": 1,
+      "totalMs": 69754,
+      "width": 512,
+      "word": "apple"
+    },
+    {
+      "backend": "ARM CPU",
+      "category": "Fruit",
+      "createdAtEpochMs": 1792803598785,
+      "decodeAndSaveMs": 88618,
+      "denoiseMs": 51727,
+      "device": "Google Pixel 10 Pro Fold \u00b7 Tensor G5",
+      "height": 512,
+      "imagePath": "artifacts/image-validation/sdxl-turbo-apple.png",
+      "loadAndEncodeMs": 3435,
+      "modelHashes": {
+        "sd_xl_turbo_1.0.q8_0.gguf": "f5659e6cdad699b1432870cc9fe811359e45c8a331687be505d0ba05c8364720"
+      },
+      "modelId": "SDXL_TURBO",
+      "modelName": "SDXL-Turbo",
+      "nativeMs": 143598,
+      "peakRssKb": 4481320,
+      "prompt": "apple, recognizable features, a simple setting appropriate to Fruit. Children's vocabulary illustration, category: Fruit. Clear subject, accurate proportions, bright natural colors, soft light, uncluttered composition. Show the meaning visually. No text, letters, labels, watermark or collage.",
+      "runtime": "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
+      "seed": 42,
+      "steps": 4,
+      "totalMs": 143776,
+      "width": 512,
+      "word": "apple"
+    },
+    {
+      "backend": "ARM CPU",
+      "category": "Fruit",
+      "createdAtEpochMs": 1792804183126,
+      "decodeAndSaveMs": 87510,
+      "denoiseMs": 437938,
+      "device": "Google Pixel 10 Pro Fold \u00b7 Tensor G5",
+      "height": 512,
+      "imagePath": "artifacts/image-validation/flux-klein-apple.png",
+      "loadAndEncodeMs": 21378,
+      "modelHashes": {
+        "flux-2-klein-4b-Q4_0.gguf": "d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4",
+        "Qwen3-4B-Q4_K_M.gguf": "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a",
+        "flux2-vae.safetensors": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+      },
+      "modelId": "FLUX_KLEIN",
+      "modelName": "FLUX.2 Klein 4B",
+      "nativeMs": 546722,
+      "peakRssKb": 5041672,
+      "prompt": "apple, recognizable features, a simple setting appropriate to Fruit. Children's vocabulary illustration, category: Fruit. Clear subject, accurate proportions, bright natural colors, soft light, uncluttered composition. Show the meaning visually. No text, letters, labels, watermark or collage.",
+      "runtime": "stable-diffusion.cpp 95ff76230889898e1bf40058ba272a3699b50dc6",
+      "seed": 42,
+      "steps": 4,
+      "totalMs": 546823,
+      "width": 512,
+      "word": "apple"
+    }
+  ],
+  "visualReview": {
+    "SD_TURBO": "Recognizable botanical apple. Extra leaves/fruit; no conspicuous glyphs.",
+    "SDXL_TURBO": "Recognizable apples, but multiple subjects and stray text-like glyphs. Inferior flashcard clarity in this single prompt/seed trial.",
+    "FLUX_KLEIN": "Clearest single-subject teaching picture in this trial: one red apple with a stem and leaves, simple background, no stray text."
+  },
+  "checks": {
+    "hostUnitTests": {
+      "tests": 68,
+      "failures": 0
+    },
+    "androidLint": "passed",
+    "debugApkBuild": "passed",
+    "realPixelCancellationBeforeLoad": "passed",
+    "emulatorDownloadRecoveryAndCancellation": "passed; real bytes transferred, persistent ticket recovered, partial file removed",
+    "emulatorUi": "Research Lab navigation and Images layout visually reviewed; jump/Actions example and typed swim/Actions prompt regeneration verified",
+    "realPixelImageGeneration": {
+      "SD_TURBO": "passed",
+      "SDXL_TURBO": "passed",
+      "FLUX_KLEIN": "passed"
+    }
+  }
+}

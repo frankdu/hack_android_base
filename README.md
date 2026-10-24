@@ -4,6 +4,13 @@ A native Android starting point for **Gemma 4 E2B and E4B through LiteRT-LM**. I
 
 The app opens an English word browser for kids. Tap a category to see its items; use Back to return to the categories. **Settings → Research Lab** opens the original model and benchmarking tools in `ResearchLabActivity`.
 
+**Research Lab → Images** prototypes offline word illustrations with **SD-Turbo, SDXL-Turbo, and quantized FLUX.2 Klein 4B**. Enter a word and category, edit the generated prompt, download the selected model, and generate a real image on ARM CPU. Save PNGs and export timing/device/model metadata. See [Pixel feasibility research, model tradeoffs, and validation](docs/IMAGE_GENERATION.md). Initialize the native dependency before the first build:
+
+```sh
+git submodule update --init third_party/stable-diffusion.cpp
+git -C third_party/stable-diffusion.cpp submodule update --init ggml
+```
+
 The dictionary comes from `seed/kids_english_dictionary.txt`, packaged directly as an Android asset. `KidsEnglishDictionary` parses its blank-line-separated `Category: <name>` sections into Kotlin `WordCategory` objects, preserving the order and text of the items. Edit the seed file and rebuild to update the vocabulary.
 
 Each word has a **speaker** icon that uses the TTS engine selected in Settings and a **sparkle assistant** icon that starts a voice conversation about the word. Gemma introduces the concept, asks what the child wants to know, transcribes microphone audio locally and answers through the selected voice. Spoken text appears with word highlighting. Contextual Talk, Done, Cancel and Stop speaking controls and typed questions are supported. Install a multimodal Gemma model in Research Lab first. See [word assistant design, timing limits and validation](docs/WORD_ASSISTANT.md).
@@ -15,6 +22,8 @@ System speech uses an installed offline English voice. Kokoro and Kitten downloa
 ## Build and install
 
 Requirements: JDK 17+, Android SDK platform 37/build tools 36, and an **ARM64 physical Android phone running Android 12/API 31 or later**. A recent Pixel with current firmware is recommended. Hardware inference performance must be measured on a real phone.
+
+The image prototype additionally builds with Android NDK **27.0.11902837** and CMake **3.22.1**.
 
 ```sh
 ./gradlew :app:assembleDebug

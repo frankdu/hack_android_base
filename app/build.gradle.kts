@@ -10,6 +10,7 @@ room { schemaDirectory("$projectDir/schemas") }
 android {
     namespace = "dev.gemmabench"
     compileSdk = 37
+    ndkVersion = "27.0.11902837"
     defaultConfig {
         applicationId = "dev.gemmabench"
         minSdk = 31
@@ -17,10 +18,12 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
+        externalNativeBuild { cmake { cppFlags += "-O2" } }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LITERT_LM_VERSION", "\"0.18.0\"")
     }
     buildFeatures { compose = true; buildConfig = true }
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     // Package the source dictionary directly so it remains the single source of truth.
     sourceSets["main"].assets.directories += rootProject.file("seed").path
     sourceSets["test"].resources.directories += rootProject.file("seed").path
