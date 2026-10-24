@@ -1,5 +1,7 @@
 # On-device word illustrations — research and prototype
 
+For the newer portable CPU/GPU integration of all five requested LiteRT image models, see [IMAGE_LITERT.md](IMAGE_LITERT.md). The historical results below describe the original GGUF/TPU work.
+
 Research date: **2026-10-23**. Open **Settings → Research Lab → Images**.
 
 ## Finding

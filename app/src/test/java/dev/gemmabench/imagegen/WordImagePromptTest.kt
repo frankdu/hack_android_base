@@ -21,7 +21,7 @@ class WordImagePromptTest {
         }
     }
     @Test fun catalogIncludesAllFluxComponentsAndPinnedIntegrity() {
-        assertEquals(3, ImageModels.all.size)
+        assertEquals(8, ImageModels.all.size)
         val flux = ImageModels.get("FLUX_KLEIN")
         assertEquals(3, flux.files.size)
         assertTrue(flux.flux)

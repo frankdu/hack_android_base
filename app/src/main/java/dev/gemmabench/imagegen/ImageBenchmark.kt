@@ -40,8 +40,8 @@ object ImageBenchmarkSuite {
 }
 
 enum class ImageMethod(val label: String, val detail: String) {
-    CPU("CPU", "ARM CPU · up to 4 threads"),
-    GPU("GPU", "Vulkan denoiser · text encoder and VAE on CPU · experimental"),
+    CPU("CPU", "ARM CPU · native GGUF or LiteRT according to model"),
+    GPU("GPU", "Vulkan for GGUF; LiteRT FP32 GPU for LiteRT models · experimental"),
     TPU("TPU", "LiteRT Tensor TPU + CPU host/unsupported partitions · experimental"),
 }
 data class ImageMethodSupport(val method: ImageMethod, val available: Boolean, val reason: String,
@@ -64,7 +64,7 @@ data class ImageBenchmarkRun(
     val device: String, val suiteVersion: String, val samples: List<ImageBenchmarkSample>,
     val skippedMethods: List<ImageMethodSupport>, val timeoutMinutes: Int,
     val status: ImageRunStatus = ImageRunStatus.RUNNING, val finishedAtEpochMs: Long? = null,
-    val protocol: String = "512x512; fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE, TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; worker/engine retained per model/method; all 30 words before unloading; worker termination awaited before next combination; TPU streams one compiled shard at a time; end-to-end latency includes startup/load on first image and encode/denoise/decode/save on every image; no warm-up excluded; 1s between samples; RSS high-water is per combination",
+    val protocol: String = "model resolution (FLUX LiteRT 256x256, Iris 768x768, others 512x512); fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE for GGUF or LiteRT FP32 GPU (Bonsai text/VAE CPU), TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; worker/engine retained per model/method; all 30 words before unloading; worker termination awaited before next combination; LiteRT streams graphs; Bonsai retains its DiT during sampling; LiteRT model/environment recreated per image; TPU streams one compiled shard at a time; end-to-end latency includes startup/load on first image and encode/denoise/decode/save on every image; no warm-up excluded; 1s between samples; RSS high-water is per combination",
 ) {
     val retainsEngine get() = protocol.contains("worker/engine retained per model/method")
     val successful get() = samples.count { it.status == ImageSampleStatus.SUCCESS }

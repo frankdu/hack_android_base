@@ -47,13 +47,13 @@ class ImageBenchmarkWorkerService : Service() {
                         require(dir.path.startsWith(benchmarkRoot) || dir == File(filesDir, "word-images").canonicalFile)
                         request.getString("bundleManifestSha256")?.let { expected ->
                             if (verifiedBundleHash == null) {
-                                val bundle = LiteRtImageBundles(this).load(model.id).first
-                                require(expected == LiteRtImageBundles.sha256(File(bundle, "manifest.json"))) { "TPU bundle changed after this run was planned." }
+                                val bundle = LiteRtImageBundles(this, portable = model.pipeline == ImagePipeline.LITERT_PLAN).load(model.id).first
+                                require(expected == LiteRtImageBundles.sha256(File(bundle, "manifest.json"))) { "LiteRT bundle changed after this run was planned." }
                                 verifiedBundleHash = expected
                             }
-                            require(verifiedBundleHash == expected) { "TPU bundle changed within the session." }
+                            require(verifiedBundleHash == expected) { "LiteRT bundle changed within the session." }
                         }
-                        DiffusionNative.resetStop()
+                        if (model.pipeline == ImagePipeline.NATIVE && method != ImageMethod.TPU) DiffusionNative.resetStop()
                         val result = generator.generate(model,
                             requireNotNull(request.getString("word")), requireNotNull(request.getString("category")),
                             requireNotNull(request.getString("prompt")), request.getLong("seed"), request.getInt("steps"), method, dir, retainEngine = request.getBoolean("retainWorker")) { step, total ->
@@ -207,13 +207,11 @@ fun imageMethodSupport(context: Context): List<ImageMethodSupport> {
     val bundles = LiteRtImageBundles(context)
     val installed = bundles.installed()
     val gguf = ImageModelStore(context).ready()
+    val gpuModels = gguf.filter { id -> ImageModels.get(id).pipeline != ImagePipeline.NATIVE || (gpu && built) }.toSet()
     return listOf(
-        ImageMethodSupport(ImageMethod.CPU, cpu, if (cpu) "ARM64 native runtime" else "Requires ARM64", gguf),
-        ImageMethodSupport(ImageMethod.GPU, gpu && built, when {
-            !built -> "Vulkan is not included in this build."
-            !gpu -> "Device does not advertise Vulkan 1.1 compute support."
-            else -> "Experimental Vulkan: driver and model compatibility are checked during generation. No automatic CPU rerouting."
-        }, gguf),
+        ImageMethodSupport(ImageMethod.CPU, cpu, "Native ARM64 or LiteRT CPU, according to model format.", gguf),
+        ImageMethodSupport(ImageMethod.GPU, cpu && gpuModels.isNotEmpty(),
+            "LiteRT FP32 GPU for LiteRT models; Vulkan denoiser for GGUF. Bonsai text/VAE use CPU. Device compatibility is checked during generation.", gpuModels),
         ImageMethodSupport(ImageMethod.TPU, installed.isNotEmpty(), when {
             bundles.soc == null -> "Requires Google Tensor G5/G6."
             installed.isEmpty() -> "Stage matching LiteRT AOT bundles, then verify below. GGUF and Gemma files cannot run this pipeline."

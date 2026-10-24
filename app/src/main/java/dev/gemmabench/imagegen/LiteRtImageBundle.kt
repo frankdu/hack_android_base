@@ -8,20 +8,24 @@ import java.io.File
 import java.security.MessageDigest
 
 /** Compiled diffusion graphs have a separate store; GGUF files are never LiteRT inputs. */
-class LiteRtImageBundles(private val context: Context) {
+class LiteRtImageBundles(private val context: Context, private val portable: Boolean = false) {
     private val gson = Gson()
     private val root get() = File(context.getExternalFilesDir(null), "image-litert")
     val soc get() = tensorSoc(Build.SOC_MODEL)
-    private fun directory(modelId: String) = File(root, "$modelId/${requireNotNull(soc) { "Tensor G5/G6 required." }}")
+    private fun directory(modelId: String) = File(root, "${modelId.removeSuffix("_LITERT")}/${if (portable) "portable" else requireNotNull(soc) { "Tensor G5/G6 required." }}")
 
-    fun installed(): Set<String> = if (soc == null) emptySet() else ImageModels.all.mapNotNull { model ->
+    fun installed(): Set<String> = if (!portable && soc == null) emptySet() else ImageModels.all.filter {
+        if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else it.pipeline == ImagePipeline.NATIVE
+    }.mapNotNull { model ->
         runCatching { load(model.id); model.id }.getOrNull()
     }.toSet()
 
     /** Explicit verification is performed on the Lab worker, never during Compose rendering. */
     fun verify(): String {
-        require(soc != null) { "Requires a Google Tensor G5 or G6 device." }
-        val messages = ImageModels.all.mapNotNull { model ->
+        require(portable || soc != null) { "Requires a Google Tensor G5 or G6 device." }
+        val messages = ImageModels.all.filter {
+            if (portable) it.pipeline == ImagePipeline.LITERT_PLAN else it.pipeline == ImagePipeline.NATIVE
+        }.mapNotNull { model ->
             val dir = directory(model.id)
             if (!File(dir, "manifest.json").isFile) return@mapNotNull null
             try {
@@ -40,13 +44,13 @@ class LiteRtImageBundles(private val context: Context) {
                 }
                 File(dir, ".verified.tmp").writeText(gson.toJson(marker))
                 check(File(dir, ".verified.tmp").renameTo(File(dir, ".verified")))
-                "${model.name}: verified · experimental ${soc} bundle"
+                "${model.name}: verified · ${if (portable) "portable LiteRT" else soc} bundle"
             } catch (e: Exception) {
                 File(dir, ".verified").delete()
                 "${model.name}: ${e.message}"
             }
         }
-        return messages.ifEmpty { listOf("No compiled bundles staged. See docs/IMAGE_TPU.md.") }.joinToString("\n")
+        return messages.ifEmpty { listOf(if (portable) "No portable SD/SDXL bundles staged. See docs/IMAGE_LITERT.md." else "No compiled TPU bundles staged. See docs/IMAGE_TPU.md.") }.joinToString("\n")
     }
 
     fun load(modelId: String): Pair<File, JsonObject> {
@@ -66,8 +70,9 @@ class LiteRtImageBundles(private val context: Context) {
         val file = File(dir, "manifest.json")
         require(file.length() in 1..16_000_000) { "Missing or invalid manifest.json" }
         val m = gson.fromJson(file.readText(), JsonObject::class.java)
-        require(m["format"].asString == "word-image-litert-v1" && m["modelId"].asString == modelId)
-        require(m["compiled"].asBoolean && m["targetSoc"].asString == soc) { "AOT bundle must match this phone's $soc." }
+        require(m["format"].asString == "word-image-litert-v1" && m["modelId"].asString == modelId.removeSuffix("_LITERT"))
+        if (portable) require(!m["compiled"].asBoolean) { "Portable graphs must not contain target-specific AOT compilation." }
+        else require(m["compiled"].asBoolean && m["targetSoc"].asString == soc) { "AOT bundle must match this phone's $soc." }
         require(m["width"].asInt == 512 && m["height"].asInt == 512 && m["steps"].asInt == ImageModels.get(modelId).steps)
         val files = m.getAsJsonObject("files")
         files.keySet().forEach { safeFile(dir, it) }
@@ -82,13 +87,16 @@ class LiteRtImageBundles(private val context: Context) {
             val action = entry.asJsonObject
             val graph = action["model"].asString
             require(files.has(graph) && graph.endsWith(".tflite"))
-            val coverage = m.getAsJsonObject("offload").getAsJsonObject(graph)
-            require(coverage["totalOps"].asLong > 0 && coverage["offloadedOps"].asLong in 0..coverage["totalOps"].asLong)
-            if (action["phase"].asString == "denoise" && (graph.contains("unet-") || graph.contains("dit-"))) neuralOffloaded += coverage["offloadedOps"].asLong
+            require(action["phase"].asString in setOf("encode", "denoise", "decode"))
+            if (!portable) {
+                val coverage = m.getAsJsonObject("offload").getAsJsonObject(graph)
+                require(coverage["totalOps"].asLong > 0 && coverage["offloadedOps"].asLong in 0..coverage["totalOps"].asLong)
+                if (action["phase"].asString == "denoise" && (graph.contains("unet-") || graph.contains("dit-"))) neuralOffloaded += coverage["offloadedOps"].asLong
+            }
             action.getAsJsonArray("inputs").forEach { require(it.asJsonObject["tensor"].asString in tensors) { "Invalid tensor dependency" } }
             action.getAsJsonArray("outputs").forEach { require(tensors.add(it.asJsonObject["tensor"].asString)) { "Duplicate tensor output" } }
         }
-        require(neuralOffloaded > 0) { "No denoiser operations were compiled for TPU; cannot report this as a TPU method." }
+        require(portable || neuralOffloaded > 0) { "No denoiser operations were compiled for TPU; cannot report this as a TPU method." }
         require(m["output"].asString in tensors)
         return m
     }

@@ -1,0 +1,32 @@
+iris-3b Turbo - LiteRT
+
+This repository contains files derived from two works under the Apache License, Version 2.0 (see LICENSE):
+
+  - iris-3b, Copyright 2026 Speridlabs
+    model: https://huggingface.co/speridlabs/iris-3b (revision adc05b909fb05d4276d26aae5a52b36406b2ef26, turbo/)
+    code:  https://github.com/speridlabs/iris-3b (commit 13fcf6a4f7fcb36561eac3daa5ad30d0b0a1822e)
+  - Qwen3-VL-4B-Instruct, Alibaba Cloud: the text encoder layers, the token embedding table and the tokenizer
+    model: https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct (revision ebb281ec70b05090aa6165b016eac8ec08e71b17)
+
+Changes made to those works:
+  - The PyTorch models were converted to LiteRT (.tflite) graphs with litert-torch: the Qwen3-VL-4B text
+    decoder (layers 1-35, text only) as 12 graphs, the iris-3b Turbo text adapter and diffusion transformer as
+    8 graphs. The fully-connected weights are stored as fp16; all other tensors are fp32.
+  - Host-side tensors (rotary tables, the timestep embeddings and modulation rows of the fixed 4-step schedule,
+    the step sigmas, a reference starting noise) were computed from the upstream model and stored in
+    iris_host.f32; the token embedding table is stored as raw bf16 in iris_embed_bf16.f32; the tokenizer tables
+    and the chat-template ids are stored in iris_tokenizer.json.
+  - python/ and android/ are new code that runs these files.
+
+The NOTICE file of iris-3b reads:
+
+  Iris-3B
+  Copyright 2026 Speridlabs
+
+  This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+  Runtime dependencies that are downloaded, not redistributed, keep their own
+  licenses, including:
+    - Qwen3-VL-4B-Instruct (text encoder), Alibaba Cloud, Apache License 2.0
+    - DINOv2 (REPA teacher, training only), Meta Platforms, Apache License 2.0
+    - Dion (Muon optimizer implementation), Microsoft, MIT License

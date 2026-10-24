@@ -55,7 +55,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Pixel research · 23 Oct 2026", style = MaterialTheme.typography.titleMedium)
-            Text("Three offline models, from a small SD baseline to FLUX. ARM CPU inference can take minutes; compare the pictures and timings on your phone.", style = MaterialTheme.typography.bodySmall)
+            Text("GGUF and LiteRT pipelines, including FLUX, Bonsai and Iris. Generation can take minutes; compare pictures, output sizes and timings on this phone.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { research = !research }) { Text(if (research) "Hide research sources" else "Research and sources") }
             if (research) {
                 Text("SD-Turbo is the lightweight baseline; SDXL-Turbo targets more detail. FLUX.2 Klein 4B is the closest match to the FLUX goal, with higher memory and latency risk.", style = MaterialTheme.typography.bodySmall)
@@ -93,7 +93,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
                     Column(Modifier.weight(1f)) {
                         Text(candidate.name, style = MaterialTheme.typography.titleMedium)
                         Text(candidate.role, style = MaterialTheme.typography.bodySmall)
-                        Text("${decimal(candidate.bytes / 1e9)} GB · ${candidate.files.size} file(s) · 512 × 512 · CPU", style = MaterialTheme.typography.bodySmall)
+                        Text("${if (candidate.files.isEmpty()) "Staged bundle" else "${decimal(candidate.bytes / 1e9)} GB · ${candidate.files.size} file(s)"} · ${candidate.width} × ${candidate.height} · ${if (candidate.pipeline == ImagePipeline.NATIVE) "GGUF" else "LiteRT"}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 Text(candidate.description, style = MaterialTheme.typography.bodySmall)
@@ -116,7 +116,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
                 if (transfers.isNotEmpty()) {
                     OutlinedButton(onClick = { controller.cancelImageDownload(candidate.id) }, enabled = !state.busy) { Text("Cancel / clear transfer") }
                 }
-                if (!installed && transfers.none { it.active }) {
+                if (!installed && candidate.files.isNotEmpty() && transfers.none { it.active }) {
                     Button(onClick = { controller.downloadImageModel(candidate.id, wifiOnly) }, enabled = !state.unavailable) {
                         Text(if (transfers.isEmpty()) "Download ${candidate.name}" else "Retry download")
                     }
@@ -128,7 +128,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
         Switch(checked = wifiOnly, onCheckedChange = { wifiOnly = it })
         Text("Wi-Fi only for new downloads", Modifier.padding(top = 12.dp))
     }
-    if (modelsExpanded || state.images.ready.isEmpty()) Text("Downloads run through Android and recover after restart. Files are checked before use. FLUX needs all three files. Other model operations wait for downloads to finish.", style = MaterialTheme.typography.bodySmall)
+    if (modelsExpanded || state.images.ready.isEmpty()) Text("Downloads run through Android and recover after restart. Files are checked before use. Every listed component is required. SD/SDXL LiteRT bundles are staged from the conversion workstation. Other model operations wait for downloads to finish.", style = MaterialTheme.typography.bodySmall)
     Text("2 · Describe the concept", style = MaterialTheme.typography.titleLarge)
     OutlinedTextField(word, onValueChange = { word = it.take(80); rebuild() }, label = { Text("Word") },
         enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -147,20 +147,20 @@ fun ImageLabPage(state: LabState, controller: LabController) {
     OutlinedTextField(seed, { seed = it.take(19) }, label = { Text("Seed · use the same seed for comparisons") }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !state.busy, modifier = Modifier.fillMaxWidth())
     Text("Run on", style = MaterialTheme.typography.titleMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(ImageMethod.CPU, ImageMethod.TPU).forEach { candidate ->
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(ImageMethod.CPU, ImageMethod.GPU, ImageMethod.TPU).forEach { candidate ->
             val support = state.imageBenchmark.methods.firstOrNull { it.method == candidate }
             FilterChip(selected = method == candidate,
-                onClick = { methodName = candidate.name; if (candidate == ImageMethod.TPU) steps = model.steps },
+                onClick = { methodName = candidate.name; if (candidate == ImageMethod.TPU || model.pipeline != ImagePipeline.NATIVE) steps = model.steps },
                 enabled = !state.busy && support?.supports(selected) == true,
-                label = { Text(if (candidate == ImageMethod.TPU) "TPU · LiteRT experimental" else "CPU") })
+                label = { Text(if (candidate == ImageMethod.TPU) "TPU · LiteRT experimental" else candidate.label) })
         }
     }
-    Text("TPU needs a verified bundle compiled for this phone. Its step count is fixed at export. Use the section below to verify staged bundles and compare CPU, GPU and TPU.", style = MaterialTheme.typography.bodySmall)
+    Text("LiteRT entries use CPU or FP32 GPU. Bonsai GPU uses CPU for text and VAE. SD/SDXL LiteRT need staged portable bundles; verify them below. TPU requires a separate bundle compiled for this phone.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(1, 2, 4).forEach { count ->
             FilterChip(selected = steps == count, onClick = { steps = count }, label = { Text("$count step${if (count == 1) "" else "s"}") },
-                enabled = !state.busy && (!model.flux || count == 4) && (method != ImageMethod.TPU || count == model.steps))
+                enabled = !state.busy && (!model.flux || count == 4) && (model.pipeline == ImagePipeline.NATIVE || count == model.steps) && (method != ImageMethod.TPU || count == model.steps))
         }
     }
     val seedValue = seed.toLongOrNull()?.takeIf { it >= 0 }

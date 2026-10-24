@@ -4,6 +4,8 @@ A native Android starting point for **Gemma 4 E2B and E4B through LiteRT-LM**. I
 
 The app opens an English word browser for kids. Tap a category to see its items; use Back to return to the categories. **Settings → Research Lab** opens the original model and benchmarking tools in `ResearchLabActivity`.
 
+**LiteRT image generation:** FLUX.2 Klein, Bonsai Image 4B, Iris 3B Turbo, SD-Turbo and SDXL-Turbo now have separate LiteRT entries with CPU/GPU execution. Community models download in-app; SD/SDXL use converted portable bundles. See [setup, model formats and validation](docs/IMAGE_LITERT.md).
+
 **Research Lab → Images** prototypes offline word illustrations with **SD-Turbo, SDXL-Turbo, and quantized FLUX.2 Klein 4B**. Enter a word and category, edit the generated prompt, download the selected model, and generate a real image on ARM CPU. Save PNGs and export timing/device/model metadata. See [Pixel feasibility research, model tradeoffs, and validation](docs/IMAGE_GENERATION.md). Initialize the native dependency before the first build:
 
 ```sh

@@ -22,9 +22,11 @@ class ImageModelStore(private val context: Context) {
     private fun marker(spec: ImageFile) = File(directory(), spec.filename + ".verified")
     private fun installed(spec: ImageFile) = file(spec).length() == spec.bytes &&
         marker(spec).takeIf { it.isFile }?.readText() == spec.sha256
-    fun ready() = ImageModels.all.filter { it.files.all(::installed) }.map { it.id }.toSet()
+    fun ready() = ImageModels.all.filter { it.files.isNotEmpty() && it.files.all(::installed) }.map { it.id }.toSet() +
+        LiteRtImageBundles(context, portable = true).installed()
 
     fun enqueue(model: ImageModel, wifiOnly: Boolean) {
+        require(model.files.isNotEmpty()) { "Stage and verify this converted bundle; see docs/IMAGE_LITERT.md." }
         cancel(model.id)
         val missing = model.files.filterNot(::installed)
         check(StatFs(directory().path).availableBytes >= missing.sumOf { it.bytes } + 128L * 1024 * 1024) {
@@ -32,6 +34,7 @@ class ImageModelStore(private val context: Context) {
         }
         try {
             for (spec in missing) {
+                file(spec).parentFile?.mkdirs()
                 File(directory(), spec.filename + ".part").delete()
                 val request = DownloadManager.Request(Uri.parse(spec.url))
                     .setTitle("${model.name} · ${spec.filename}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a compiled image bundle without uninstalling the app or touching GGUF weights."""
+"""Stage a portable or compiled image bundle without uninstalling the app or touching GGUF weights."""
 import argparse
 import json
 import re
@@ -14,10 +14,12 @@ p.add_argument('bundle', type=Path)
 p.add_argument('--serial', required=True, help='Explicit adb serial prevents accidental staging to the wrong phone')
 a = p.parse_args()
 m = json.loads((a.bundle / 'manifest.json').read_text())
-if m['format'] != 'word-image-litert-v1' or not m['compiled']:
-    sys.exit('Requires a compiled app-compatible image bundle')
-if m['modelId'] not in ('SD_TURBO', 'SDXL_TURBO', 'FLUX_KLEIN') or m['targetSoc'] not in ('Tensor_G5', 'Tensor_G6'):
+if m['format'] != 'word-image-litert-v1':
+    sys.exit('Requires an app-compatible image bundle')
+if m['modelId'] not in ('SD_TURBO', 'SDXL_TURBO', 'FLUX_KLEIN') or (m['compiled'] and m['targetSoc'] not in ('Tensor_G5', 'Tensor_G6')):
     sys.exit('Invalid model/SoC')
+if not m['compiled'] and m['modelId'] not in ('SD_TURBO', 'SDXL_TURBO'):
+    sys.exit('Portable staging currently supports SD-Turbo and SDXL-Turbo; use the in-app download for community FLUX.')
 root = a.bundle.resolve()
 files = []
 for relative, spec in m['files'].items():
@@ -28,7 +30,8 @@ for relative, spec in m['files'].items():
         sys.exit(f'Unsafe path or hash mismatch: {relative}')
     files.append((relative, path))
 adb = ['adb', '-s', a.serial]
-remote = f'/sdcard/Android/data/dev.gemmabench/files/image-litert/{m["modelId"]}/{m["targetSoc"]}'
+target = m['targetSoc'] if m['compiled'] else 'portable'
+remote = f'/sdcard/Android/data/dev.gemmabench/files/image-litert/{m["modelId"]}/{target}'
 subprocess.run(adb + ['shell', 'mkdir', '-p', remote], check=True)
 # Invalidate prior marker/manifest first. Publish the new manifest last, after all files.
 subprocess.run(adb + ['shell', 'rm', '-f', remote + '/.verified', remote + '/manifest.json'], check=True)
@@ -37,4 +40,4 @@ for relative, path in files:
     subprocess.run(adb + ['shell', 'mkdir', '-p', str(Path(destination).parent)], check=True)
     subprocess.run(adb + ['push', str(path), destination], check=True)
 subprocess.run(adb + ['push', str(root / 'manifest.json'), remote + '/manifest.json'], check=True)
-print('Staged. Open Research Lab → Images → Verify staged TPU bundles, then select TPU in the benchmark.')
+print('Staged. Open Research Lab → Images → Verify staged LiteRT bundles, then select the matching runtime in the benchmark.')

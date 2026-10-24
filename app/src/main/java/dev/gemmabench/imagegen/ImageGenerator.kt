@@ -21,6 +21,7 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
     fun generate(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
         steps: Int, method: ImageMethod = ImageMethod.CPU, outputDirectory: File? = null, retainEngine: Boolean = false,
         progress: (Int, Int) -> Unit): ImageResult {
+        if (model.pipeline != ImagePipeline.NATIVE) return generatePortable(model, word, category, prompt, seed, steps, method, outputDirectory, progress)
         if (method == ImageMethod.TPU) return generateLiteRt(model, word, category, prompt, seed, steps, outputDirectory, retainEngine, progress)
         require(model.id in store.ready()) { "Download and verify all ${model.name} files first." }
         require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank()) { "Enter a word, category and prompt." }
@@ -54,6 +55,39 @@ class ImageGenerator(private val context: Context, private val store: ImageModel
             backend = if (method == ImageMethod.GPU) "Vulkan GPU denoiser (text + VAE on CPU)" else "ARM CPU",
             loadAndEncodeMs = denoiseStart - nativeStart, denoiseMs = (denoiseEnd - denoiseStart).coerceAtLeast(0),
             decodeAndSaveMs = (SystemClock.elapsedRealtime() - denoiseEnd).coerceAtLeast(0))
+        File(directory, file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
+        return result
+    }
+    private fun generatePortable(model: ImageModel, word: String, category: String, prompt: String, seed: Long,
+        steps: Int, method: ImageMethod, outputDirectory: File?, progress: (Int, Int) -> Unit): ImageResult {
+        require(method != ImageMethod.TPU) { "This bundle supports LiteRT CPU/GPU." }
+        require(word.isNotBlank() && category.isNotBlank() && prompt.isNotBlank() && prompt.length <= 2000)
+        require(seed >= 0 && steps == model.steps) { "Use the model's fixed step count and a non-negative seed." }
+        require(model.id in store.ready()) { "Download or stage and verify ${model.name} first." }
+        val start = SystemClock.elapsedRealtime()
+        val hashes: Map<String, String>
+        val output = if (model.pipeline == ImagePipeline.LITERT_PLAN) {
+            val raw = LiteRtImageExecutor(context, method).use { it.generate(model, prompt, seed, steps, progress) }
+            hashes = raw.hashes
+            PortableImagePipeline.Output(raw.pixels, raw.backend, raw.encodeMs, raw.denoiseMs, raw.decodeMs)
+        } else {
+            hashes = model.files.associate { it.filename to it.sha256 }
+            PortableImagePipeline(context).use { it.generate(model, File(store.directory(), model.id), prompt, seed, steps, method, progress) }
+        }
+        val inferenceMs = SystemClock.elapsedRealtime() - start
+        check(output.pixels.any { it != output.pixels.first() }) { "LiteRT returned a uniform blank image." }
+        val timestamp = System.currentTimeMillis()
+        val directory = outputDirectory?.apply { mkdirs() } ?: outputDirectory()
+        val file = File(directory, "$timestamp-${model.id}-${method.name}.png")
+        val bitmap = Bitmap.createBitmap(output.pixels, model.width, model.height, Bitmap.Config.ARGB_8888)
+        try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+        finally { bitmap.recycle() }
+        val result = ImageResult(model.id, model.name, word.trim(), category.trim(), prompt, seed, steps,
+            SystemClock.elapsedRealtime() - start, inferenceMs, highWaterRssKb(), file.absolutePath, timestamp,
+            hashes, "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.SOC_MODEL}", backend = output.backend,
+            width = model.width, height = model.height, runtime = "Google LiteRT 2.3.0 · ${model.pipeline}",
+            loadAndEncodeMs = output.encodeMs, denoiseMs = output.denoiseMs,
+            decodeAndSaveMs = output.decodeMs + SystemClock.elapsedRealtime() - start - inferenceMs)
         File(directory, file.nameWithoutExtension + ".json").writeText(gson.toJson(result))
         return result
     }

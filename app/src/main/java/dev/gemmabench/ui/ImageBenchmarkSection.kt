@@ -43,7 +43,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
     HorizontalDivider()
     Text("30-word generation benchmark", style = MaterialTheme.typography.headlineSmall)
     Text("One click runs 30 fixed word prompts for every selected model and method. The same word uses the same prompt and seed across comparisons.")
-    Text("Each model + CPU/GPU/TPU combination runs all 30 words, then unloads before the next combination. Speed includes loading on the first image and generation/saving on every image; no warm-up is excluded. TPU streams one compiled shard at a time. Resolution: 512 × 512. Average and mean are the same statistic; median is shown too.", style = MaterialTheme.typography.bodySmall)
+    Text("Each model + CPU/GPU/TPU combination runs all 30 words, then unloads before the next combination. Speed includes loading on the first image and generation/saving on every image; no warm-up is excluded. TPU streams one compiled shard at a time. Resolution follows each model: FLUX LiteRT 256 px, Bonsai/SD 512 px, Iris 768 px. Compare speed together with resolution and quality. Average and mean are the same statistic; median is shown too.", style = MaterialTheme.typography.bodySmall)
     Text("Models", style = MaterialTheme.typography.titleMedium)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ImageModels.all.forEach { model ->
@@ -51,8 +51,8 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
                 enabled = !state.busy && benchmark.methods.any { it.supports(model.id) }, label = { Text("${model.name} · ${model.steps} step${if (model.steps == 1) "" else "s"}") })
         }
     }
-    Text("TPU bundles are separate from the CPU/GPU downloads. Stage an exported Tensor G5/G6 bundle with scripts/push-image-litert.py, then verify it here. Verification checks hashes and tokenizer parity; generation checks runtime compatibility.", style = MaterialTheme.typography.bodySmall)
-    OutlinedButton(onClick = controller::verifyImageTpuBundles, enabled = !state.unavailable) { Text("Verify staged TPU bundles") }
+    Text("TPU bundles are separate from the CPU/GPU downloads. Stage a portable LiteRT or Tensor G5/G6 bundle with scripts/push-image-litert.py, then verify it here. Verification checks hashes and tokenizer parity; generation checks runtime compatibility.", style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = controller::verifyImageTpuBundles, enabled = !state.unavailable) { Text("Verify staged LiteRT bundles") }
     Text("Generation methods", style = MaterialTheme.typography.titleMedium)
     benchmark.methods.forEach { support ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -66,7 +66,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
             }
         }
     }
-    Text("A GPU failure skips remaining GPU jobs. A TPU failure skips the affected model’s TPU jobs. Other methods continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
+    Text("A LiteRT failure skips the affected model/method. A Vulkan failure skips remaining GGUF GPU jobs. A TPU failure skips the affected model’s TPU jobs. Other methods continue. Failed/skipped jobs have no speed or quality score.", style = MaterialTheme.typography.bodySmall)
     Text("Per-image timeout", style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(5, 10, 20).forEach { minutes -> FilterChip(selected = timeout == minutes,

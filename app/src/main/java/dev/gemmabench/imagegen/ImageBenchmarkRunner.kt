@@ -48,12 +48,14 @@ class ImageBenchmarkRunner(
                 } catch (e: Exception) {
                     if (stopped.get() || (e is CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException)) throw CancellationException("Stopped", e)
                     val message = if (e is kotlinx.coroutines.TimeoutCancellationException) "Per-image timeout (${run.timeoutMinutes} min)." else e.message ?: e.javaClass.simpleName
-                    val disableMethod = sample.method == ImageMethod.GPU || sample.method == ImageMethod.TPU || (e is ImageWorkerException && e.methodUnavailable)
+                    val disableMethod = sample.method == ImageMethod.GPU || sample.method == ImageMethod.TPU ||
+                        ImageModels.get(sample.modelId).pipeline != ImagePipeline.NATIVE || (e is ImageWorkerException && e.methodUnavailable)
                     checkpoint { current -> current.copy(samples = current.samples.map { s ->
                         when {
                             s.id == sample.id -> s.copy(status = ImageSampleStatus.FAILED, error = message)
                             disableMethod && s.status == ImageSampleStatus.PENDING && s.method == sample.method &&
-                                (sample.method == ImageMethod.GPU || s.modelId == sample.modelId) ->
+                                ((sample.method == ImageMethod.GPU && ImageModels.get(sample.modelId).pipeline == ImagePipeline.NATIVE &&
+                                    ImageModels.get(s.modelId).pipeline == ImagePipeline.NATIVE) || s.modelId == sample.modelId) ->
                                 s.copy(status = ImageSampleStatus.SKIPPED, error = "Method stopped after an earlier failure: $message")
                             else -> s
                         }

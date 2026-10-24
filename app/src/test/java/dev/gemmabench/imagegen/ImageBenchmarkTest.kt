@@ -37,6 +37,21 @@ class ImageBenchmarkTest {
         assertTrue(run.retainsEngine)
     }
 
+    @Test fun liteRtGpuFailureDoesNotSkipOtherModelPipelines() = runBlocking {
+        val models = listOf(ImageModels.get("FLUX_KLEIN_LITERT"), ImageModels.get("IRIS_LITERT"))
+        val repo = MemoryRepository(newImageBenchmarkRun("litert-failure", 10, "test", models,
+            listOf(ImageMethodSupport(ImageMethod.GPU, true, "test")), 20))
+        val runner = ImageBenchmarkRunner(repo, { _, sample ->
+            if (sample.modelId == "FLUX_KLEIN_LITERT") error("GPU graph incompatible")
+            result(sample) to 100L
+        }, {}, betweenSamples = {})
+        runner.run(repo.run.id) {}
+        assertEquals(1, repo.run.failed)
+        assertEquals(29, repo.run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        assertEquals(30, repo.run.successful)
+        assertTrue(repo.run.samples.filter { it.modelId == "IRIS_LITERT" }.all { it.status == ImageSampleStatus.SUCCESS })
+    }
+
     @Test fun historicalProtocolKeepsPerImageLoadingBehavior() {
         val historical = plan().copy(protocol = "fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save")
         assertFalse(historical.retainsEngine)
@@ -85,7 +100,7 @@ class ImageBenchmarkTest {
     }
 
     @Test fun allThreeModelsAndBackendsFinishThirtyWordsBeforeUnloading() = runBlocking {
-        val models = ImageModels.all
+        val models = ImageModels.all.filter { it.pipeline == ImagePipeline.NATIVE }
         assertEquals(3, models.size)
         val allMethods = ImageMethod.entries.map { ImageMethodSupport(it, true, "test") }
         val repo = MemoryRepository(newImageBenchmarkRun("all-combinations", 10, "test", models, allMethods, 20))

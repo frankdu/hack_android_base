@@ -13,7 +13,7 @@ import java.nio.ByteOrder
 import java.util.Random
 
 /** Executes exporter-owned tensor plans, with one shard resident at a time. */
-class LiteRtImageExecutor(private val context: Context) : AutoCloseable {
+class LiteRtImageExecutor(private val context: Context, private val method: ImageMethod = ImageMethod.TPU) : AutoCloseable {
     private var modelId: String? = null
     private var bundle: Pair<java.io.File, JsonObject>? = null
     private var environment: Environment? = null
@@ -28,7 +28,8 @@ class LiteRtImageExecutor(private val context: Context) : AutoCloseable {
 
     fun generate(model: ImageModel, prompt: String, seed: Long, steps: Int, progress: (Int, Int) -> Unit): Output {
         require(modelId == null || modelId == model.id) { "Close the TPU session before changing models." }
-        val (dir, manifest) = bundle ?: LiteRtImageBundles(context).load(model.id).also {
+        val portable = method != ImageMethod.TPU
+        val (dir, manifest) = bundle ?: LiteRtImageBundles(context, portable).load(model.id).also {
             bundle = it
             modelId = model.id
         }
@@ -74,19 +75,23 @@ class LiteRtImageExecutor(private val context: Context) : AutoCloseable {
             mapOf(Environment.Option.DispatchLibraryDir to context.applicationInfo.nativeLibraryDir)).also { environment = it }
         run {
             val environment = activeEnvironment
-            check(Accelerator.NPU in environment.getAvailableAccelerators()) { "LiteRT Google Tensor NPU dispatch is unavailable on this device/build." }
+            if (!portable) check(Accelerator.NPU in environment.getAvailableAccelerators()) { "LiteRT Google Tensor NPU dispatch is unavailable on this device/build." }
             for (action in actions) {
                 val phase = action["phase"].asString
                 val step = action["step"].asInt
                 if (phase == "denoise" && step != reportedStep) { reportedStep = step; progress((step - 1).coerceAtLeast(0), steps) }
                 val start = SystemClock.elapsedRealtime()
                 val graph = action["model"].asString
-                val offloaded = manifest.getAsJsonObject("offload").getAsJsonObject(graph)["offloadedOps"].asLong
-                val accelerator = if (offloaded > 0) Accelerator.NPU else Accelerator.CPU
+                val offloaded = if (portable) 0 else manifest.getAsJsonObject("offload").getAsJsonObject(graph)["offloadedOps"].asLong
+                val accelerator = if (portable && method == ImageMethod.GPU) Accelerator.GPU else if (offloaded > 0) Accelerator.NPU else Accelerator.CPU
+                val options = CompiledModel.Options(accelerator).apply {
+                    if (accelerator == Accelerator.GPU) gpuOptions = CompiledModel.GpuOptions(precision = CompiledModel.GpuOptions.Precision.FP32)
+                    if (accelerator == Accelerator.CPU) cpuOptions = CompiledModel.CpuOptions(numThreads = 4)
+                }
                 // Never retry a failed NPU graph with CPU options. Partial CPU partitions are
                 // declared in compiler coverage and explicitly included in the backend label.
                 CompiledModel.create(LiteRtImageBundles.safeFile(dir, graph).absolutePath,
-                    CompiledModel.Options(accelerator), environment).use { compiled ->
+                    options, environment).use { compiled ->
                     val inputs = mutableMapOf<String, TensorBuffer>()
                     val outputs = mutableMapOf<String, TensorBuffer>()
                     val signature = action["signature"].asString
@@ -139,11 +144,11 @@ class LiteRtImageExecutor(private val context: Context) : AutoCloseable {
             fun channel(offset: Int) = (rgb[offset + i].coerceIn(0f, 1f) * 255 + 0.5f).toInt()
             (0xff shl 24) or (channel(0) shl 16) or (channel(size) shl 8) or channel(size * 2)
         }
-        val offload = manifest.getAsJsonObject("offload").entrySet().map { it.value.asJsonObject }
+        val offload = if (portable) emptyList() else manifest.getAsJsonObject("offload").entrySet().map { it.value.asJsonObject }
         val offloaded = offload.sumOf { it["offloadedOps"].asLong }
         val total = offload.sumOf { it["totalOps"].asLong }
         return Output(pixels, manifest.getAsJsonObject("files").entrySet().associate { it.key to it.value.asJsonObject["sha256"].asString },
-            "LiteRT ${manifest["targetSoc"].asString} TPU + CPU host/partitions · $offloaded/$total unique graph ops AOT offloaded · experimental",
+            if (portable) "LiteRT ${method.label} · CPU host · experimental" else "LiteRT ${manifest["targetSoc"].asString} TPU + CPU host/partitions · $offloaded/$total unique graph ops AOT offloaded · experimental",
             times.getValue("encode"), times.getValue("denoise"), times.getValue("decode"))
     }
 }

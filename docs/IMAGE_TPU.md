@@ -1,5 +1,7 @@
 # Image generation on Google Tensor TPU — experimental integration
 
+For the newer portable CPU/GPU integration of all five requested LiteRT image models, see [IMAGE_LITERT.md](IMAGE_LITERT.md). The historical results below describe the original GGUF/TPU work.
+
 Research and implementation date: 2026-10-23. Models: SD-Turbo, SDXL-Turbo,
 FLUX.2 Klein 4B. **No converted bundle or end-to-end TPU image has been validated
 on a Pixel yet.** The Android integration and conversion workflow are prepared;

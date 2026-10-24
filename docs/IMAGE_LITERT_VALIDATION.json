@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-24",
+  "androidRuntime": "Google LiteRT 2.3.0 CompiledModel",
+  "android": {
+    "assembleDebug": "PASS",
+    "lintDebug": "PASS",
+    "jvmTests": {
+      "passed": 92,
+      "failed": 0
+    },
+    "instrumentedGeneration": "NOT_RUN_NO_ADB_DEVICE",
+    "cpuDeviceGeneration": "NOT_VALIDATED",
+    "gpuDeviceGeneration": "NOT_VALIDATED",
+    "newTensorTpuBundles": "NOT_CREATED"
+  },
+  "linuxHost": {
+    "address": "192.168.4.103",
+    "workDirectory": "/mnt/sda1/frankdu/litert-image-support",
+    "architecture": "x86_64",
+    "gpu": "RTX 6000 Ada 48 GiB (not used for CPU pipeline checks)",
+    "ramGiB": 125,
+    "python": "3.12.9",
+    "aiEdgeLiteRt": "2.3.0",
+    "litertTorch": "0.10.0",
+    "torch": "2.14.1+cu130",
+    "diffusers": "0.42.0",
+    "litertCli": "0.3.0.dev20261024",
+    "pythonWorkflowTestsPassed": 6
+  },
+  "pipelines": {
+    "SD_TURBO": {
+      "export": "PASS_ALL_SHARD_PARITY_CHECKS",
+      "fullCpuPlanReplay": "PASS",
+      "outputDimensions": [
+        512,
+        512
+      ],
+      "bundleDirectory": "/mnt/sda1/frankdu/litert-image-support/sd-export",
+      "bundleBytes": 5028002773,
+      "files": 29,
+      "actions": 24,
+      "manifestSha256": "07dbb3d90ef80348519d5a04b53ddd1938db44707ba1f5383f5645224e061330",
+      "source": {
+        "repository": "stabilityai/sd-turbo",
+        "revision": "b261bac6fd2cf515557d5d0707481eafa0485ec2",
+        "model": "SD_TURBO",
+        "format": "diffusers"
+      },
+      "parity": {
+        "modelId": "SD_TURBO",
+        "backend": "desktop LiteRT CPU",
+        "psnrVsExportReference": 79.75544272432666,
+        "elapsedSeconds": 9.045017776999885,
+        "actions": 24,
+        "deviceValidated": false
+      },
+      "noiseForDesktopParity": "PyTorch seed 42; Android uses a different Java random stream",
+      "outputImage": "/mnt/sda1/frankdu/litert-image-support/sd-apple.png",
+      "outputPngSha256": "20cb2a46872d9683fbb317cf6d278e2553824b67f5c8ff105b63aab6cef446b9",
+      "visualReview": "PASS_RECOGNIZABLE_APPLE",
+      "phonePerformanceClaim": false
+    },
+    "SDXL_TURBO": {
+      "export": "PASS_ALL_SHARD_PARITY_CHECKS",
+      "fullCpuPlanReplay": "PASS",
+      "outputDimensions": [
+        512,
+        512
+      ],
+      "bundleDirectory": "/mnt/sda1/frankdu/litert-image-support/sdxl-export",
+      "bundleBytes": 13748945386,
+      "files": 75,
+      "actions": 188,
+      "manifestSha256": "19c7453100cad604bb66873b21dfee12ccce8d9f9bc5cbd0d3896e9b1f189e84",
+      "source": {
+        "repository": "stabilityai/sdxl-turbo",
+        "revision": "71153311d3dbb46851df1931d3ca6e939de83304",
+        "model": "SDXL_TURBO",
+        "format": "diffusers"
+      },
+      "parity": {
+        "modelId": "SDXL_TURBO",
+        "backend": "desktop LiteRT CPU",
+        "psnrVsExportReference": 74.00177123977996,
+        "elapsedSeconds": 23.846950876002666,
+        "actions": 188,
+        "deviceValidated": false
+      },
+      "noiseForDesktopParity": "PyTorch seed 42; Android uses a different Java random stream",
+      "outputImage": "/mnt/sda1/frankdu/litert-image-support/sdxl-apple.png",
+      "outputPngSha256": "aa6288a76e3dc75399a0df1fd1a4c7f25828da47c170704fb40fffbabc034b83",
+      "visualReview": "PASS_RECOGNIZABLE_APPLE",
+      "phonePerformanceClaim": false
+    },
+    "FLUX_KLEIN": {
+      "fullCpuGeneration": "PASS",
+      "outputDimensions": [
+        256,
+        256
+      ],
+      "detail": "Reconstructed host loop with actual published LiteRT graphs; Java seed 42",
+      "outputImage": "/mnt/sda1/frankdu/litert-image-support/flux-apple.png",
+      "outputPngSha256": "38557184cef9e6be5b164f712b07d19b5533a814d4d12d589adb65f6391f3683",
+      "visualReview": "PASS_RECOGNIZABLE_APPLE",
+      "phonePerformanceClaim": false
+    },
+    "BONSAI": {
+      "fullCpuGeneration": "PASS",
+      "outputDimensions": [
+        512,
+        512
+      ],
+      "detail": "Published Python CPU reference with NumPy seed 42; Android uses upstream SplitMix64 noise",
+      "outputImage": "/mnt/sda1/frankdu/litert-image-support/bonsai-apple.png",
+      "outputPngSha256": "536e791db44b806bffe5aa545774501777563f2d8c7a8960b3cea3bb62405998",
+      "visualReview": "PASS_RECOGNIZABLE_APPLE",
+      "phonePerformanceClaim": false
+    },
+    "IRIS": {
+      "fullCpuGeneration": "PASS",
+      "outputDimensions": [
+        768,
+        768
+      ],
+      "detail": "Published Python CPU reference with Java-compatible seed 42; all 41 graph invocations completed, no non-finite pixels",
+      "outputImage": "/mnt/sda1/frankdu/litert-image-support/iris-apple.png",
+      "outputPngSha256": "1f785864990e89e96853f4121665f6b665d10378edaeb8860b3b2113c3cf8b58",
+      "visualReview": "PASS_RECOGNIZABLE_APPLE",
+      "phonePerformanceClaim": false
+    }
+  },
+  "limitations": [
+    "Desktop checks are not Android device validation.",
+    "GPU paths are implemented but unvalidated on an Android GPU.",
+    "SD/SDXL portable exports are float32 and require manual staging; community entries download in-app.",
+    "Different resolutions, prompts and noise streams prevent treating these smoke runs as speed or quality comparisons."
+  ]
+}

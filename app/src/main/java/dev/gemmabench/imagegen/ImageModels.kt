@@ -6,9 +6,11 @@ data class ImageFile(val filename: String, val repository: String, val revision:
 }
 data class ImageModel(val id: String, val name: String, val role: String, val steps: Int,
     val flux: Boolean, val description: String, val source: String, val license: String,
-    val files: List<ImageFile>) {
+    val files: List<ImageFile>, val pipeline: ImagePipeline = ImagePipeline.NATIVE,
+    val width: Int = 512, val height: Int = width) {
     val bytes get() = files.sumOf { it.bytes }
 }
+enum class ImagePipeline { NATIVE, FLUX_LITERT, BONSAI_LITERT, IRIS_LITERT, LITERT_PLAN }
 
 /** Pinned repository revisions and LFS SHA-256 metadata, researched 2026-10-23. */
 object ImageModels {
@@ -30,7 +32,7 @@ object ImageModels {
         listOf(ImageFile("flux-2-klein-4b-Q4_0.gguf", "leejet/FLUX.2-klein-4B-GGUF", "3b1f5a9dc3abb32238b053aeb3d823c30afdacbd", "flux-2-klein-4b-Q4_0.gguf", 2460378560L, "d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4"),
             ImageFile("Qwen3-4B-Q4_K_M.gguf", "unsloth/Qwen3-4B-GGUF", "22c9fc8a8c7700b76a1789366280a6a5a1ad1120", "Qwen3-4B-Q4_K_M.gguf", 2497281312L, "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"),
             ImageFile("flux2-vae.safetensors", "Comfy-Org/flux2-klein-4B", "533c4cbc3d3b89af1743d9466c434e89810391c0", "split_files/vae/flux2-vae.safetensors", 336211292L, "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3")))
-    )
+    ) + CommunityImageModels.all
     fun get(id: String) = all.first { it.id == id }
 }
 

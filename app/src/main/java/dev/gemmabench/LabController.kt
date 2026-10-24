@@ -135,9 +135,9 @@ class LabController(private val app: Application) {
                 val plan = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · ${android.os.Build.SOC_MODEL} · ${android.os.Build.FINGERPRINT}",
                     selected, requested, timeoutMinutes)
-                val bundleHashes = selected.filter { model -> plan.samples.any { it.modelId == model.id && it.method == ImageMethod.TPU } }
-                    .associate { model -> model.id to LiteRtImageBundles(app).load(model.id).first.let { LiteRtImageBundles.sha256(java.io.File(it, "manifest.json")) } }
-                val run = plan.copy(samples = plan.samples.map { sample -> sample.copy(bundleManifestSha256 = bundleHashes[sample.modelId].takeIf { sample.method == ImageMethod.TPU }) })
+                val bundleHashes = selected.filter { model -> model.pipeline == ImagePipeline.LITERT_PLAN || plan.samples.any { it.modelId == model.id && it.method == ImageMethod.TPU } }
+                    .associate { model -> model.id to LiteRtImageBundles(app, portable = model.pipeline == ImagePipeline.LITERT_PLAN).load(model.id).first.let { LiteRtImageBundles.sha256(java.io.File(it, "manifest.json")) } }
+                val run = plan.copy(samples = plan.samples.map { sample -> sample.copy(bundleManifestSha256 = bundleHashes[sample.modelId].takeIf { sample.method == ImageMethod.TPU || ImageModels.get(sample.modelId).pipeline == ImagePipeline.LITERT_PLAN }) })
                 imageBenchmarkStore.save(run)
                 updateImageBenchmark(run)
                 mutable.update { it.copy(engineRetained = false, imageBenchmark = it.imageBenchmark.copy(activeRunId = run.id, methods = available)) }
@@ -162,10 +162,10 @@ class LabController(private val app: Application) {
                 val pending = run.samples.filter { it.status == ImageSampleStatus.PENDING }
                 val available = imageMethodSupport(app)
                 require(pending.all { sample -> available.any { it.method == sample.method && it.supports(sample.modelId) } }) { "A required method is unavailable on this device/build." }
-                pending.filter { it.method == ImageMethod.TPU }.distinctBy { it.modelId }.forEach { sample ->
-                    val directory = LiteRtImageBundles(app).load(sample.modelId).first
+                pending.filter { it.method == ImageMethod.TPU || ImageModels.get(it.modelId).pipeline == ImagePipeline.LITERT_PLAN }.distinctBy { it.modelId }.forEach { sample ->
+                    val directory = LiteRtImageBundles(app, portable = ImageModels.get(sample.modelId).pipeline == ImagePipeline.LITERT_PLAN).load(sample.modelId).first
                     require(sample.bundleManifestSha256 == LiteRtImageBundles.sha256(java.io.File(directory, "manifest.json"))) {
-                        "The TPU bundle changed. Start a new benchmark to preserve comparable results."
+                        "The LiteRT bundle changed. Start a new benchmark to preserve comparable results."
                     }
                 }
                 require(run.device.endsWith(android.os.Build.FINGERPRINT)) { "The device build changed. Start a new comparison to keep measurements consistent." }
@@ -205,8 +205,9 @@ class LabController(private val app: Application) {
         if (!begin("Verifying LiteRT image bundles…")) return
         scope.launch {
             try {
-                val message = LiteRtImageBundles(app).verify()
-                mutable.update { it.copy(progress = message, imageBenchmark = it.imageBenchmark.copy(methods = imageMethodSupport(app))) }
+                val message = LiteRtImageBundles(app, portable = true).verify() + "\n" +
+                    if (LiteRtImageBundles(app).soc != null) LiteRtImageBundles(app).verify() else "Tensor TPU bundles require G5/G6."
+                mutable.update { it.copy(progress = message, images = it.images.copy(ready = imageModels.ready()), imageBenchmark = it.imageBenchmark.copy(methods = imageMethodSupport(app))) }
             } catch (e: Exception) { fail(e) }
             finally { finish() }
         }
@@ -274,7 +275,7 @@ class LabController(private val app: Application) {
                         images = it.images.copy(step = step, totalSteps = total)) }
                 }
                 val model = ImageModels.get(id)
-                val result = if (method == ImageMethod.TPU) {
+                val result = if (method == ImageMethod.TPU || model.pipeline != ImagePipeline.NATIVE) {
                     val input = ImageBenchmarkPrompt(word, category, prompt, seed)
                     val sample = ImageBenchmarkSample("manual", id, model.name, method, input, steps)
                     imageBenchmarkClient.generate(sample, java.io.File(app.filesDir, "word-images"), 20, progress = onProgress)

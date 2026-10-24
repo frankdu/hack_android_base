@@ -109,7 +109,9 @@ class ProgramBuilder:
     def convert(self, module, arguments, path, expected):
         import litert_torch
         from ai_edge_litert.interpreter import Interpreter
-        litert_torch.convert(module.eval(), tuple(arguments)).export(str(path))
+        # New converters otherwise silently narrow int64 token/intermediate tensors,
+        # breaking the typed manifest ABI and Android TensorBuffer writes.
+        litert_torch.convert(module.eval(), tuple(arguments), enable_x64=True).export(str(path))
         if path.stat().st_size >= 2_000_000_000:
             raise RuntimeError(f"{path}: graph exceeds 2GB; reduce --shard-mib or split a single large matrix")
         model = Interpreter(model_path=str(path), num_threads=4)

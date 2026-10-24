@@ -82,11 +82,15 @@ def fetch(args):
     revision = args.revision or (FLUX_REVISION if args.ready_flux else SOURCE_REVISIONS[args.model])
     # Resolve mutable references once; downstream commands use this immutable snapshot.
     info = HfApi().model_info(repo, revision=revision)
-    patterns = None
+    # Diffusers only needs component checkpoints. Avoid duplicate root checkpoints,
+    # fp16 variants and ONNX external-data blobs (which do not end in .onnx).
+    patterns = ["model_index.json", "README.md", "*LICENSE*", "*NOTICE*", "*policy*",
+                "*/config.json", "*/preprocessor_config.json", "scheduler/*", "*/*.safetensors", "*/tokenizer*",
+                "*/vocab*", "*/merges*", "*/special_tokens*", "*/added_tokens*", "*/chat_template*"]
     if args.ready_flux:
         patterns = ["ke_*.tflite", "kc_*.tflite", "kv_vae.tflite", "tokenizer/*", "README.md", "*LICENSE*"]
     path = snapshot_download(repo, revision=info.sha, allow_patterns=patterns,
-                             ignore_patterns=None if args.ready_flux else ["*.bin", "*.onnx", "*.msgpack", "*.h5"],
+                             ignore_patterns=None if args.ready_flux else ["*.fp16.*", "*.onnx*", "*.bin", "*.msgpack", "*.h5"],
                              local_dir=args.output)
     write_json(Path(args.output) / "source.json", dict(repository=repo, revision=info.sha, model=args.model,
         format="community-litert-256" if args.ready_flux else "diffusers"))
