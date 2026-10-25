@@ -94,9 +94,10 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
         throw IllegalStateException("Cannot load native vision libraries: ${e.message}", e)
     }
 
-    /** Audio-enabled engine is retained for both transcription and subsequent text replies. */
-    suspend fun voiceText(model: ModelArtifact, settings: RunSettings, audio: ByteArray?, onText: (String) -> Unit): String =
-        try { measureNative(model, settings, onText, audio = audio, voice = true).output.orEmpty() }
+    /** Keep the same audio/vision engine for illustrated replies and intervening transcription. */
+    suspend fun voiceText(model: ModelArtifact, settings: RunSettings, audio: ByteArray?, jpeg: ByteArray? = null,
+                          onText: (String) -> Unit): String =
+        try { measureNative(model, settings, onText, jpeg = jpeg, audio = audio, voice = true).output.orEmpty() }
         catch (e: LinkageError) { throw IllegalStateException("Cannot load voice inference: ${e.message}", e) }
 
     private suspend fun measureNative(
@@ -130,7 +131,10 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             return Measurement(info.metrics(), elapsedMs(start))
         }
 
-        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}:vision=${jpeg != null}:audio=$voice"
+        // Voice sessions retain vision across ASR turns so replies do not reload a multi-GB engine.
+        val visionEnabled = jpeg != null || (voice && model.metadata?.visionSupported == true)
+        val structuredPhoto = jpeg != null && !voice
+        val key = "${model.sha256}:${settings.accelerator}:${settings.contextTokens}:${settings.speculativeDecoding}:vision=$visionEnabled:audio=$voice"
         val reused = engine != null && key == engineKey
         var loadMs: Double? = null
         if (!reused) {
@@ -148,7 +152,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                     audioBackend = backend(selected)
                 }
             }
-            if (jpeg != null) {
+            if (visionEnabled) {
                 ModelInfo.from(file.absolutePath).use { info ->
                     require(info.inputModalities().vision) { "This model has no vision encoder. Import a multimodal Gemma model." }
                     val supported = info.supportedBackends(Modality.VISION).map { it.name }
@@ -165,7 +169,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                 backend = backend(settings.accelerator),
                 visionBackend = vision,
                 audioBackend = audioBackend,
-                maxNumImages = if (jpeg != null) 1 else null,
+                maxNumImages = if (visionEnabled) 1 else null,
                 maxNumTokens = settings.contextTokens,
                 cacheDir = cache(model, settings),
             ))
@@ -188,7 +192,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
             maxOutputToken = settings.outputTokens,
             thinkingConfig = ThinkingConfig(enableThinking = false, thinkingTokenBudget = 0),
             enableSpeculativeDecoding = settings.speculativeDecoding,
-            enableResponseFormat = jpeg != null,
+            enableResponseFormat = structuredPhoto,
         ))
         val setupMs = elapsedMs(conversationStart)
         synchronized(conversationLock) { activeConversation = conversation }
@@ -204,7 +208,7 @@ class LiteRtRuntime(private val context: Context, private val modelFile: (ModelA
                 else -> Contents.of(settings.prompt)
             }
             conversation.sendMessageAsync(contents,
-                responseFormat = if (jpeg != null) ResponseFormat.json(PhotoObjects.SCHEMA) else null,
+                responseFormat = if (structuredPhoto) ResponseFormat.json(PhotoObjects.SCHEMA) else null,
             ).bufferInferenceChunks().collect { message ->
                 val text = message.toString()
                 if (text.isNotEmpty()) {

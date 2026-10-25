@@ -1,5 +1,19 @@
 # Generate vocabulary images locally
 
+## Bundled demo illustrations
+
+The demo APK includes 10,000 precomputed 520×520 JPEGs in `app/src/main/assets/word-images/`,
+moved from `output/images/`. These originals occupy about 548 MB and are packaged with every build.
+`WordImageAsset.path` follows the generator's filename rules, including capitalization, punctuation,
+and category names. Keep this folder's files when sharing or rebuilding the demo.
+
+The word list decodes small thumbnails off the main thread. The word assistant shows a larger
+illustration and sends its JPEG bytes to Gemma on the introduction and each follow-up reply.
+The prompt grounds explanations in the displayed illustration. Microphone transcription still
+receives audio only; the audio/vision engine stays loaded between turns. Assistant replies remain
+plain speech, while the photo lab retains its structured object-detection output.
+If a word has no bundled image, its row and assistant continue without an illustration.
+
 `scripts/generate_word_images.py` reads `seed/kids_english_dictionary.txt` (100 categories × 100 words). Defaults: `black-forest-labs/FLUX.2-klein-4B`, `./output/images`, exactly 520×520 pixels, PNG, four inference steps, guidance 1.0. The dictionary path is relative to the script's project; the output path is relative to your working directory.
 
 ## Setup and run

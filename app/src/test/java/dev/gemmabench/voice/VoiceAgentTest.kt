@@ -51,10 +51,14 @@ class VoiceAgentTest {
     @Test fun microphoneWaitsForSpeechThenGemmaTranscribesAndAnswersWithHistory() = runTest(dispatcher) {
         val events = mutableListOf<String>()
         val prompts = mutableListOf<String>()
+        val images = mutableListOf<ByteArray?>()
+        val illustration = byteArrayOf(7, 8, 9)
+        var imageLoads = 0
         var captures = 0
         val model = object : VoiceModel {
-            override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
                 prompts += prompt
+                images += jpeg
                 if (audio != null) { events += "transcribe"; return "Why do dogs bark?" }
                 val reply = if (prompts.size == 1) "A dog is a friendly animal. What would you like to know?" else "Dogs bark to communicate."
                 onText(reply)
@@ -76,7 +80,12 @@ class VoiceAgentTest {
             }
             override fun stop() {}
         }
-        VoiceAgentController(model, input, speech).use { agent ->
+        VoiceAgentController(model, input, speech, image = { word, category ->
+            assertEquals("dog", word)
+            assertEquals("animal", category)
+            imageLoads++
+            illustration
+        }).use { agent ->
             agent.start("dog", "animal", true)
             runCurrent()
             assertFalse(events.contains("listen"))
@@ -89,6 +98,13 @@ class VoiceAgentTest {
             assertEquals(VoicePhase.PAUSED, agent.state.value.phase)
             assertNull(agent.state.value.highlight)
             assertEquals(3, agent.state.value.messages.size)
+            assertEquals(1, imageLoads)
+            assertEquals(3, images.size)
+            assertArrayEquals(illustration, images[0]) // Opening explanation sees the picture.
+            assertNull(images[1]) // Speech transcription gets audio only.
+            assertArrayEquals(illustration, images[2]) // Follow-up sees the same picture.
+            assertTrue(prompts.first().contains("attached illustration"))
+            assertTrue(prompts.last().contains("attached illustration"))
         }
     }
 
@@ -97,7 +113,7 @@ class VoiceAgentTest {
         var speech = false
         var recorded = false
         val model = object : VoiceModel {
-            override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
                 delay(1000); onText("Hello."); return "Hello."
             }
             override fun cancel() { cancelled = true }
@@ -126,7 +142,7 @@ class VoiceAgentTest {
             var replies = 0
             var recording = CompletableDeferred<ByteArray?>()
             val model = object : VoiceModel {
-                override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String {
+                override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
                     if (audio != null) { transcriptions++; return "Why do dogs bark?" }
                     return "Dogs bark to communicate."
                 }
@@ -170,7 +186,7 @@ class VoiceAgentTest {
         var recordings = 0
         var replies = 0
         val model = object : VoiceModel {
-            override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
                 if (audio != null) { awaitCancellation() }
                 return "A dog is a friendly animal."
             }
@@ -204,7 +220,7 @@ class VoiceAgentTest {
         var recordings = 0
         var stopped = false
         val model = object : VoiceModel {
-            override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
                 val reply = "Dogs bark to communicate. They also wag their tails."
                 onText(reply)
                 return reply

@@ -350,7 +350,8 @@ class LabController(private val app: Application) {
     }
 
     /** Reserves the existing worker; no second multi-GB engine competes with lab inference. */
-    suspend fun voiceText(prompt: String, audio: ByteArray? = null, onText: (String) -> Unit = {}): String {
+    suspend fun voiceText(prompt: String, audio: ByteArray? = null, jpeg: ByteArray? = null,
+                          onText: (String) -> Unit = {}): String {
         check(begin("Word assistant is thinking…", inference = true)) {
             "The local model is busy. Wait for Research Lab to finish, then try again."
         }
@@ -359,14 +360,15 @@ class LabController(private val app: Application) {
                 currentCoroutineContext().ensureActive()
                 runtime.resetStop()
                 val snapshot = state.value
-                val choice = selectLocalLlm(snapshot.models, snapshot.tpuSupport, snapshot.preferredLlmFamily, audio = true)
+                val choice = selectLocalLlm(snapshot.models, snapshot.tpuSupport, snapshot.preferredLlmFamily,
+                    audio = true, photos = jpeg != null)
                     ?: error("Download a multimodal Gemma model in Settings → Research Lab to talk together.")
                 val model = state.value.models.first { it.slot == choice.slot }
                 val settings = RunSettings(accelerator = choice.accelerator, workload = Workload.PROMPT,
                     contextTokens = model.metadata.voiceContextTokens(),
                     outputTokens = if (audio == null) 192 else 128, prompt = prompt)
                 validateBackend(model, settings)
-                runtime.voiceText(model, settings, audio, onText)
+                runtime.voiceText(model, settings, audio, jpeg, onText)
             }
         } finally {
             // JNI cleanup stays on its owner even when the Activity cancels the request.

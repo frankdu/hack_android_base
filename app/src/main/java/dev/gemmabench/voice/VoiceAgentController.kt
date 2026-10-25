@@ -2,6 +2,7 @@ package dev.gemmabench.voice
 
 import android.content.Context
 import dev.gemmabench.LabController
+import dev.gemmabench.data.BundledWordImages
 import dev.gemmabench.tts.SpeechController
 import dev.gemmabench.tts.SpeechSentences
 import kotlinx.coroutines.*
@@ -22,7 +23,7 @@ data class VoiceAgentState(
  * Session text and audio are never persisted. A generation guards all late callbacks.
  */
 interface VoiceModel {
-    suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit): String
+    suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String
     fun cancel()
 }
 interface VoiceInput {
@@ -36,14 +37,18 @@ interface VoiceOutput {
 }
 
 class VoiceAgentController(private val model: VoiceModel, private val recorder: VoiceInput,
-                           private val speech: VoiceOutput) : AutoCloseable {
+                           private val speech: VoiceOutput,
+                           private val image: suspend (String, String) -> ByteArray? = { _, _ -> null }) : AutoCloseable {
     constructor(context: Context, lab: LabController, speech: SpeechController) : this(
         object : VoiceModel {
-            override suspend fun generate(prompt: String, audio: ByteArray?, onText: (String) -> Unit) = lab.voiceText(prompt, audio, onText)
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit) =
+                lab.voiceText(prompt, audio, jpeg, onText)
             override fun cancel() = lab.cancelVoiceInference()
         }, VoiceRecorder(context.applicationContext), object : VoiceOutput {
             override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) = speech.speakText(text, onRange)
             override fun stop() = speech.stop()
+        }, { word, category ->
+            withContext(Dispatchers.IO) { BundledWordImages(context.applicationContext.assets).jpeg(word, category) }
         })
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(VoiceAgentState())
@@ -73,6 +78,8 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
         job = scope.launch {
             try {
                 previous?.join()
+                val selected = state.value
+                val jpeg = image(selected.word!!, selected.category)
                 var next = question
                 var opening = intro
                 while (isActive && id == generation) {
@@ -97,7 +104,7 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
                     val stopAfterReply = next?.let(VoicePrompts::wantsToStop) == true
                     mutable.update { it.copy(phase = VoicePhase.THINKING, detail = null, speakingText = "", highlight = null) }
                     val snapshot = state.value
-                    sayReply(VoicePrompts.reply(snapshot.word!!, snapshot.category, snapshot.messages), id)
+                    sayReply(VoicePrompts.reply(snapshot.word!!, snapshot.category, snapshot.messages, jpeg != null), id, jpeg)
                     if (stopAfterReply) {
                         mutable.update { it.copy(phase = VoicePhase.PAUSED, detail = "Tap Talk whenever you want to explore more.") }
                         break
@@ -117,19 +124,20 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
         }
     }
 
-    private suspend fun infer(prompt: String, audio: ByteArray? = null, onText: (String) -> Unit = {}): String {
+    private suspend fun infer(prompt: String, audio: ByteArray? = null, jpeg: ByteArray? = null,
+                              onText: (String) -> Unit = {}): String {
         inferenceActive = true
-        try { return model.generate(prompt, audio, onText) } finally { inferenceActive = false }
+        try { return model.generate(prompt, audio, jpeg, onText) } finally { inferenceActive = false }
     }
 
-    private suspend fun sayReply(prompt: String, id: Long) = coroutineScope {
+    private suspend fun sayReply(prompt: String, id: Long, jpeg: ByteArray?) = coroutineScope {
         // At most 192 output tokens are produced, bounding this queue to one short reply.
         val sentences = Channel<String>(Channel.UNLIMITED)
         val producer = async {
             var previous = ""
             val splitter = SpeechSentences()
             try {
-                val result = infer(prompt, onText = { full ->
+                val result = infer(prompt, jpeg = jpeg, onText = { full ->
                     if (id == generation && full.startsWith(previous)) {
                         splitter.append(full.substring(previous.length)).forEach { sentences.trySend(it) }
                         previous = full

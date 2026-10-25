@@ -152,6 +152,11 @@ class KidsEnglishInstrumentedTest {
                 while (clickable != null && !clickable.isClickable) clickable = clickable.parent
                 assertNotNull("Expected a clickable control for: $description", clickable)
             }
+            val deadline = SystemClock.uptimeMillis() + 10_000
+            while (findDescription(instrumentation.uiAutomation.rootInActiveWindow, "Illustration of dog") == null &&
+                SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
+            assertNotNull("Missing bundled word thumbnail",
+                findDescription(instrumentation.uiAutomation.rootInActiveWindow, "Illustration of dog"))
         }
     }
 

@@ -51,82 +51,88 @@ fun WordAssistantPage(state: VoiceAgentState, onTalk: () -> Unit, onCancel: () -
     }
     // Android restarts its normal screen timeout when the last keep-screen-on request is removed.
     val awakeModifier = if (busy) Modifier.keepScreenOn() else Modifier
-    Column(modifier.then(awakeModifier).imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(state.word.orEmpty(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-        Text("Explore this word with Gemma", style = MaterialTheme.typography.bodyLarge)
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(status, style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                if (state.phase == VoicePhase.LISTENING) {
-                    LinearProgressIndicator(progress = { state.level }, modifier = Modifier.fillMaxWidth())
-                    Text("Speak, then pause. Tap Done when you finish, or Cancel to discard.", style = MaterialTheme.typography.bodySmall)
-                } else if (state.phase == VoicePhase.THINKING || state.phase == VoicePhase.TRANSCRIBING) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
-                state.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                if (state.detail?.startsWith("Allow microphone") == true) {
-                    TextButton(onClick = onMicrophoneSettings) { Text("Microphone settings") }
-                }
+    BoxWithConstraints(modifier.then(awakeModifier).imePadding()) {
+        val imageHeight = (maxHeight * 0.25f).coerceAtMost(220.dp)
+        Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(state.word.orEmpty(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+            state.word?.let { word ->
+                BundledWordImage(word, state.category, size = imageHeight,
+                    modifier = Modifier.fillMaxWidth().height(imageHeight))
             }
-        }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = scroll,
-            verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(state.messages) { message ->
-                Surface(shape = MaterialTheme.shapes.large,
-                    color = if (message.child) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (message.child) "You" else "Gemma", style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary)
-                        Text(message.text, style = MaterialTheme.typography.bodyLarge)
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(status, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    if (state.phase == VoicePhase.LISTENING) {
+                        LinearProgressIndicator(progress = { state.level }, modifier = Modifier.fillMaxWidth())
+                        Text("Speak, then pause. Tap Done when you finish, or Cancel to discard.", style = MaterialTheme.typography.bodySmall)
+                    } else if (state.phase == VoicePhase.THINKING || state.phase == VoicePhase.TRANSCRIBING) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                    state.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    if (state.detail?.startsWith("Allow microphone") == true) {
+                        TextButton(onClick = onMicrophoneSettings) { Text("Microphone settings") }
                     }
                 }
             }
-            if (state.speakingText.isNotEmpty()) item {
-                Surface(shape = MaterialTheme.shapes.large) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Gemma", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(buildAnnotatedString {
-                            append(state.speakingText)
-                            state.highlight?.let { range ->
-                                val end = (range.last + 1).coerceAtMost(length)
-                                if (range.first in 0 until end) addStyle(SpanStyle(
-                                    background = MaterialTheme.colorScheme.primaryContainer,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold), range.first, end)
-                            }
-                        }, style = MaterialTheme.typography.headlineSmall)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = scroll,
+                verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
+                items(state.messages) { message ->
+                    Surface(shape = MaterialTheme.shapes.large,
+                        color = if (message.child) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(if (message.child) "You" else "Gemma", style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary)
+                            Text(message.text, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+                if (state.speakingText.isNotEmpty()) item {
+                    Surface(shape = MaterialTheme.shapes.large) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Gemma", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Text(buildAnnotatedString {
+                                append(state.speakingText)
+                                state.highlight?.let { range ->
+                                    val end = (range.last + 1).coerceAtMost(length)
+                                    if (range.first in 0 until end) addStyle(SpanStyle(
+                                        background = MaterialTheme.colorScheme.primaryContainer,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        fontWeight = FontWeight.Bold), range.first, end)
+                                }
+                            }, style = MaterialTheme.typography.headlineSmall)
+                        }
                     }
                 }
             }
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = when {
-                    listening -> onStopListening
-                    busy -> onCancel
-                    else -> onTalk
-                }, modifier = Modifier.weight(1f),
-                colors = if (busy) ButtonDefaults.buttonColors(containerColor = activeGreen, contentColor = Color(0xFF153B32))
-                    else ButtonDefaults.buttonColors()) {
-                Icon(painterResource(if (busy && !listening) R.drawable.ic_stop_24 else R.drawable.ic_mic_24),
-                    contentDescription = null)
-                Spacer(Modifier.width(8.dp)); Text(actionLabel)
-            }
-            if (listening) {
-                TextButton(onClick = onCancel) { Text("Cancel") }
-            }
-        }
-        if (showTextInput) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = question, onValueChange = { question = it.take(600) },
-                    label = { Text("Type a question") }, modifier = Modifier.weight(1f), maxLines = 3, enabled = !busy)
-                IconButton(onClick = { onSend(question); question = "" }, enabled = !busy && question.isNotBlank()) {
-                    Icon(painterResource(R.drawable.ic_send_24), contentDescription = "Send")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = when {
+                        listening -> onStopListening
+                        busy -> onCancel
+                        else -> onTalk
+                    }, modifier = Modifier.weight(1f),
+                    colors = if (busy) ButtonDefaults.buttonColors(containerColor = activeGreen, contentColor = Color(0xFF153B32))
+                        else ButtonDefaults.buttonColors()) {
+                    Icon(painterResource(if (busy && !listening) R.drawable.ic_stop_24 else R.drawable.ic_mic_24),
+                        contentDescription = null)
+                    Spacer(Modifier.width(8.dp)); Text(actionLabel)
+                }
+                if (listening) {
+                    TextButton(onClick = onCancel) { Text("Cancel") }
                 }
             }
+            if (showTextInput) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = question, onValueChange = { question = it.take(600) },
+                        label = { Text("Type a question") }, modifier = Modifier.weight(1f), maxLines = 3, enabled = !busy)
+                    IconButton(onClick = { onSend(question); question = "" }, enabled = !busy && question.isNotBlank()) {
+                        Icon(painterResource(R.drawable.ic_send_24), contentDescription = "Send")
+                    }
+                }
+            }
+            Text("Voice and conversation stay on this device. Gemma can make mistakes.",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
         }
-        Text("Voice and conversation stay on this device. Gemma can make mistakes.",
-            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
     }
 }

@@ -35,7 +35,7 @@ private fun AssistantLayoutPreview(initialPhase: VoicePhase = VoicePhase.SPEAKIN
                                    showTextInput: Boolean = false) {
     var phase by remember { mutableStateOf(initialPhase) }
     var menu by remember { mutableStateOf(false) }
-    val sample = VoiceAgentState(word = "butterfly", category = "insect", phase = phase,
+    val sample = VoiceAgentState(word = "butterfly", category = "bug", phase = phase,
         messages = listOf(
             VoiceMessage(false, "A butterfly is an insect with wide, colorful wings. What would you like to know about butterflies?"),
             VoiceMessage(true, "Why are their wings so colorful?"),

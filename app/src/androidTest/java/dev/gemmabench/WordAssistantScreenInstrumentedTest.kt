@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class WordAssistantScreenInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
-    private val state = mutableStateOf(VoiceAgentState(word = "dog"))
+    private val state = mutableStateOf(VoiceAgentState(word = "dog", category = "animal"))
     private val visible = mutableStateOf(true)
     private val activePhases = listOf(VoicePhase.THINKING, VoicePhase.TRANSCRIBING,
         VoicePhase.SPEAKING, VoicePhase.LISTENING)

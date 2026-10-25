@@ -161,6 +161,8 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Text("${index + 1}", color = MaterialTheme.colorScheme.primary,
                                                 style = MaterialTheme.typography.labelLarge)
+                                            BundledWordImage(word, category.name, size = 56.dp,
+                                                modifier = Modifier.size(56.dp))
                                             Text(word, style = MaterialTheme.typography.headlineSmall,
                                                 modifier = Modifier.weight(1f).clickable(role = androidx.compose.ui.semantics.Role.Button) {
                                                     agent.end(); speech.speakDefault(word)

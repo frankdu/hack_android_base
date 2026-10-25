@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.gemmabench.benchmark.*
 import dev.gemmabench.data.LabStorage
+import dev.gemmabench.data.BundledWordImages
 import dev.gemmabench.runtime.LiteRtRuntime
 import dev.gemmabench.tts.*
 import dev.gemmabench.voice.*
@@ -20,6 +21,37 @@ import java.util.concurrent.Executors
 /** Opt-in real Gemma audio test: -e voiceInference true, with an installed multimodal E2B/E4B. */
 @RunWith(AndroidJUnit4::class)
 class VoiceInferenceInstrumentedTest {
+    @Test fun bundledWordIllustrationProducesASpokenReply() = runBlocking {
+        assumeTrue("Enable with -e wordImageInference true",
+            InstrumentationRegistry.getArguments().getString("wordImageInference") == "true")
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as GemmaBenchApplication
+        withTimeout(30_000) { while (app.lab.state.value.busy) delay(50) }
+        assumeTrue("Install a multimodal Gemma model first", app.lab.state.value.models.any {
+            it.metadata?.visionSupported == true && it.metadata.audioSupported == true
+        })
+        val jpeg = requireNotNull(BundledWordImages(app.assets).jpeg("dog", "animal"))
+        val prompt = VoicePrompts.reply("dog", "animal",
+            listOf(VoiceMessage(true, "What does the dog in this picture look like?")), hasImage = true)
+        var streamed = ""
+        val reply = withTimeout(600_000) {
+            var result: String? = null
+            while (result == null) {
+                try { result = app.lab.voiceText(prompt, jpeg = jpeg) { streamed = it } }
+                catch (error: IllegalStateException) {
+                    // Startup immediately polls downloads; that short reservation is not foreground inference.
+                    if (!error.message.orEmpty().startsWith("The local model is busy.")) throw error
+                    delay(100)
+                }
+            }
+            result
+        }
+        Log.i("VoiceInference", "Bundled dog illustration: $reply")
+        assertTrue("No picture explanation: $reply", reply.length > 20)
+        assertTrue("Reply should discuss dog: $reply", reply.contains("dog", ignoreCase = true))
+        assertFalse("Assistant should speak naturally, not return photo JSON: $reply", reply.trim().startsWith("{"))
+        assertEquals(reply, streamed)
+    }
+
     @Test fun gemmaTranscribesAudioAndExplainsTheSelectedWord() = runBlocking {
         assumeTrue("Enable with -e voiceInference true",
             InstrumentationRegistry.getArguments().getString("voiceInference") == "true")
