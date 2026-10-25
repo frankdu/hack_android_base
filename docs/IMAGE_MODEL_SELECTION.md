@@ -5,14 +5,18 @@ SDXL-Turbo**. Iris was removed from the selectable/download list at the user's
 request. Its catalog/runtime identifiers remain for reading existing results and
 recovering older transfers. Historical runs and published repositories are preserved.
 
+SD-Turbo and SDXL-Turbo now use the compact INT8/FP16 phone bundles (1.32 GB and
+3.53 GB). See the [Pixel quantization audit](PIXEL_IMAGE_MODELS.md) for recipes,
+quality comparisons, memory evidence and validation limits.
+
 ## Source preference and download recovery
 
 - FLUX and Bonsai prefer their pinned `litert-community` artifacts. If an upstream
   artifact fails with a missing/rejected/transient HTTP response or fails integrity
   verification, DownloadManager retries the corresponding pinned `frankdu` mirror.
 - No compatible SD-Turbo/SDXL-Turbo conversion was found in the `litert-community`
-  Hub catalog audit. These entries use the newly published `frankdu/SD-Turbo-LiteRT`
-  and `frankdu/SDXL-Turbo-LiteRT` snapshots directly.
+  Hub catalog audit. These entries use `frankdu/SD-Turbo-Mobile-INT8-LiteRT`
+  and `frankdu/SDXL-Turbo-Mobile-INT8-LiteRT` snapshots directly.
 - Every primary/mirror file shares the same expected size and SHA-256. A mirror
   cannot substitute a different model or recipe. Upstream README files map to the
   mirror's preserved SOURCE_MODEL_CARD.md. Revisions are immutable; the app does
@@ -65,8 +69,10 @@ alone does not enable LiteRT GPU.
 
 - CPU: four-thread LiteRT. Portable SD manifests preserve int64 tensors.
 - GPU: explicit FP32 LiteRT GPU. Bonsai uses its GPU-shaped DiT with text encoder
-  and VAE on CPU. Other portable pipelines request GPU for every neural graph.
-  Compilation/invocation errors are reported without retrying another backend.
+  and VAE on CPU; FLUX requests GPU for every neural graph. The current compact
+  SD/SDXL exports are GPU-unavailable after actual Tensor G5 shape-compilation
+  failures, including a denoiser-only GPU attempt. Their GPU benchmark jobs are
+  skipped with a reason. Compilation/invocation errors never retry another backend.
 - TPU: available only if the runtime exposes NPU, the device is supported Tensor
   G5/G6, and a verified AOT bundle matches the model, dimensions and step count.
   The portable/public files are not labeled TPU artifacts. The generic AOT
@@ -99,5 +105,8 @@ per image and those costs remain included.
   Iris absent. Screenshots were inspected on Pixel 8a API 36.
 - The live Hub audit verifies all 136 catalog files and 164 primary/mirror entries.
 
-The emulator tests do not download or execute the large models. Physical Android
-CPU/GPU generation and device-specific TPU bundles still require device validation.
+The emulator tests do not download or execute large models. All four CPU pipelines
+subsequently completed physical Pixel 10 Pro Fold / Tensor G5 generation; see the
+[Pixel audit](PIXEL_IMAGE_MODELS.md) for memory, timings, alias-buffer correction
+and GPU failures. Pixel 10 Pro, Pixel 11 Pro and Tensor TPU still need their own
+device/backend validation.

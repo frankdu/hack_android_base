@@ -2,6 +2,7 @@ package dev.gemmabench.imagegen
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
@@ -83,13 +84,18 @@ class LiteRtImageExecutor(private val context: Context, private val method: Imag
                 val start = SystemClock.elapsedRealtime()
                 val graph = action["model"].asString
                 val offloaded = if (portable) 0 else manifest.getAsJsonObject("offload").getAsJsonObject(graph)["offloadedOps"].asLong
-                val accelerator = if (portable && method == ImageMethod.GPU) Accelerator.GPU else if (offloaded > 0) Accelerator.NPU else Accelerator.CPU
+                // Conditioning uses int64 token/gather operations; sampler and VAE stay on CPU.
+                // GPU is an explicit denoiser pipeline, never a retry after a GPU failure.
+                val gpuDenoiser = portable && method == ImageMethod.GPU && phase == "denoise" &&
+                    (graph.startsWith("graphs/unet-") || graph.startsWith("graphs/dit-"))
+                val accelerator = if (gpuDenoiser) Accelerator.GPU else if (offloaded > 0) Accelerator.NPU else Accelerator.CPU
                 val options = CompiledModel.Options(accelerator).apply {
                     if (accelerator == Accelerator.GPU) gpuOptions = CompiledModel.GpuOptions(precision = CompiledModel.GpuOptions.Precision.FP32)
                     if (accelerator == Accelerator.CPU) cpuOptions = CompiledModel.CpuOptions(numThreads = 4)
                 }
                 // Never retry a failed NPU graph with CPU options. Partial CPU partitions are
                 // declared in compiler coverage and explicitly included in the backend label.
+                Log.i("LiteRtImage", "${model.id}/${method.name}: $graph · $accelerator")
                 CompiledModel.create(LiteRtImageBundles.safeFile(dir, graph).absolutePath,
                     options, environment).use { compiled ->
                     val inputs = mutableMapOf<String, TensorBuffer>()
@@ -111,7 +117,10 @@ class LiteRtImageExecutor(private val context: Context, private val method: Imag
                         }
                         action.getAsJsonArray("outputs").forEach { output ->
                             val o = output.asJsonObject
-                            outputs[o["name"].asString] = compiled.createOutputBuffer(o["name"].asString, signature)
+                            // A passthrough output can be the *same* TFLite tensor as an input.
+                            // Allocating it separately replaces the input allocation with garbage.
+                            outputs[o["name"].asString] = o["aliasOfInput"]?.let { inputs.getValue(it.asString) }
+                                ?: compiled.createOutputBuffer(o["name"].asString, signature)
                         }
                         compiled.run(inputs, outputs, signature)
                         action.getAsJsonArray("outputs").forEach { output ->
@@ -125,7 +134,7 @@ class LiteRtImageExecutor(private val context: Context, private val method: Imag
                                 else -> error("Unsupported tensor output type")
                             }
                         }
-                    } finally { inputs.values.forEach { it.close() }; outputs.values.forEach { it.close() } }
+                    } finally { (inputs.values + outputs.values).distinct().forEach { it.close() } }
                 }
                 times[phase] = requireNotNull(times[phase]) + SystemClock.elapsedRealtime() - start
                 action.getAsJsonArray("inputs").forEach { input ->
@@ -148,7 +157,8 @@ class LiteRtImageExecutor(private val context: Context, private val method: Imag
         val offloaded = offload.sumOf { it["offloadedOps"].asLong }
         val total = offload.sumOf { it["totalOps"].asLong }
         return Output(pixels, manifest.getAsJsonObject("files").entrySet().associate { it.key to it.value.asJsonObject["sha256"].asString },
-            if (portable) "LiteRT ${method.label} · CPU host · experimental" else "LiteRT ${manifest["targetSoc"].asString} TPU + CPU host/partitions · $offloaded/$total unique graph ops AOT offloaded · experimental",
+            if (portable && method == ImageMethod.GPU) "LiteRT FP32 GPU denoiser + CPU text/VAE/sampler/host · experimental"
+            else if (portable) "LiteRT CPU · CPU host · experimental" else "LiteRT ${manifest["targetSoc"].asString} TPU + CPU host/partitions · $offloaded/$total unique graph ops AOT offloaded · experimental",
             times.getValue("encode"), times.getValue("denoise"), times.getValue("decode"))
     }
 }

@@ -37,7 +37,7 @@ class ImageSourceAndBackendTest {
 
     @Test fun sdDownloadsIncludeTheExactPortableManifestAndRequiredBundleFiles() {
         ImageModels.liteRt.filter { it.pipeline == ImagePipeline.LITERT_PLAN }.forEach { model ->
-            assertEquals("frankdu/${model.name.removeSuffix(" · LiteRT")}-LiteRT", model.files.first().repository)
+            assertEquals("frankdu/${model.name.removeSuffix(" · LiteRT")}-Mobile-INT8-LiteRT", model.files.first().repository)
             assertTrue(model.files.any { it.remotePath == "manifest.json" })
             assertTrue(model.files.any { it.remotePath == "NOTICE" })
             assertTrue(model.files.any { it.remotePath.startsWith("tokenizer0/") })
@@ -64,9 +64,10 @@ class ImageSourceAndBackendTest {
         val methods = imageBackendSupport(ImageModels.liteRt, ids, setOf("SD_TURBO_LITERT"), true, true, true, false, "Tensor_G5")
         val run = newImageBenchmarkRun("four", 1, "device", ImageModels.liteRt, methods, 20, includeUnavailable = true)
         assertEquals(360, run.samples.size)
-        assertEquals(270, run.samples.count { it.status == ImageSampleStatus.PENDING })
-        assertEquals(90, run.samples.count { it.status == ImageSampleStatus.SKIPPED })
-        assertTrue(run.samples.filter { it.status == ImageSampleStatus.SKIPPED }.all { it.method == ImageMethod.TPU && !it.error.isNullOrBlank() })
+        assertEquals(210, run.samples.count { it.status == ImageSampleStatus.PENDING })
+        assertEquals(150, run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        assertTrue(run.samples.filter { it.status == ImageSampleStatus.SKIPPED }.all { !it.error.isNullOrBlank() })
+        assertEquals(60, run.samples.count { it.status == ImageSampleStatus.SKIPPED && it.method == ImageMethod.GPU })
         assertFalse(run.samples.any { it.modelId == "IRIS_LITERT" })
         assertEquals(4, run.samples.map { it.modelId }.distinct().size)
     }
@@ -78,7 +79,10 @@ class ImageSourceAndBackendTest {
         assertFalse(cpu.supports("BONSAI_LITERT"))
         assertTrue(cpu.reasonFor("BONSAI_LITERT").contains("Download"))
         val run = newImageBenchmarkRun("partial", 1, "device", ImageModels.liteRt, methods, 20, includeUnavailable = true)
-        assertEquals(60, run.pending)
-        assertEquals(300, run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        assertEquals(30, run.pending)
+        assertEquals(330, run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        val gpu = methods.first { it.method == ImageMethod.GPU }
+        assertFalse(gpu.compatible("SD_TURBO_LITERT"))
+        assertTrue(gpu.reasonFor("SD_TURBO_LITERT").contains("GPU graph layout"))
     }
 }

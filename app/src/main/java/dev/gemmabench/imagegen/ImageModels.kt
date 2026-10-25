@@ -22,7 +22,7 @@ fun imageDownloadWaitingReason(reason: Int): String = when (reason) {
 data class ImageModel(val id: String, val name: String, val role: String, val steps: Int,
     val flux: Boolean, val description: String, val source: String, val license: String,
     val files: List<ImageFile>, val pipeline: ImagePipeline = ImagePipeline.NATIVE,
-    val width: Int = 512, val height: Int = width) {
+    val width: Int = 512, val height: Int = width, val gpuUnavailableReason: String? = null) {
     val bytes get() = files.sumOf { it.bytes }
 }
 enum class ImagePipeline { NATIVE, FLUX_LITERT, BONSAI_LITERT, IRIS_LITERT, LITERT_PLAN }

@@ -6,6 +6,8 @@ The app opens an English word browser for kids. Tap a category to see its items;
 
 **LiteRT image generation:** FLUX.2 Klein, Bonsai Image 4B, SD-Turbo and SDXL-Turbo are the four active LiteRT models. All four download in-app, preferring community artifacts with verified frankdu fallback sources. Images provides Generate and Compare views with CPU/GPU and matching TPU bundle choices. Iris is no longer selectable. See [the current workflow](docs/IMAGE_MODEL_SELECTION.md). See [setup, model formats and validation](docs/IMAGE_LITERT.md).
 
+SD-Turbo and SDXL-Turbo now use compact INT8/FP16 bundles (1.32 GB and 3.53 GB). All four models completed Tensor G5 CPU generation; the current SD GPU exports are unavailable. See the [Pixel model audit and memory measurements](docs/PIXEL_IMAGE_MODELS.md).
+
 **Research Lab → Images** prototypes offline word illustrations with **SD-Turbo, SDXL-Turbo, and quantized FLUX.2 Klein 4B**. Enter a word and category, edit the generated prompt, download the selected model, and generate a real image on ARM CPU. Save PNGs and export timing/device/model metadata. See [Pixel feasibility research, model tradeoffs, and validation](docs/IMAGE_GENERATION.md). Initialize the native dependency before the first build:
 
 ```sh

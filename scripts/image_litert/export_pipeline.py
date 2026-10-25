@@ -218,5 +218,7 @@ def export_pipeline(args):
         steps=steps, compiled=False, targetSoc=None, validation="cpu-shard-parity-only",
         externals=builder.externals, actions=builder.actions, output=pixels,
         files={name: dict(bytes=(builder.out / name).stat().st_size, sha256=digest(builder.out / name)) for name in sorted(builder.files)})
+    from tensor_aliases import annotate_manifest
+    annotate_manifest(builder.out, manifest)
     write_json(builder.out / "manifest.json", manifest)
     print(f"Exported {len(builder.files)} files. Next: compile separately for Tensor_G5 / Tensor_G6, then validate on-device.")

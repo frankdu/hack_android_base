@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-24",
+  "scope": "One fixed blue-teapot prompt, seed 7, fresh isolated CPU worker; not a multi-run benchmark",
+  "results": [
+    {
+      "modelId": "FLUX_KLEIN_LITERT",
+      "device": "Pixel 10 Pro Fold",
+      "soc": "Tensor G5",
+      "width": 256,
+      "height": 256,
+      "steps": 4,
+      "totalMs": 85763,
+      "peakRssKiB": 2192440,
+      "status": "PASS",
+      "visuallyReviewed": true
+    },
+    {
+      "modelId": "BONSAI_LITERT",
+      "device": "Pixel 10 Pro Fold",
+      "soc": "Tensor G5",
+      "width": 512,
+      "height": 512,
+      "steps": 4,
+      "totalMs": 135960,
+      "peakRssKiB": 4384732,
+      "status": "PASS",
+      "visuallyReviewed": true
+    },
+    {
+      "modelId": "SD_TURBO_LITERT",
+      "device": "Pixel 10 Pro Fold",
+      "soc": "Tensor G5",
+      "width": 512,
+      "height": 512,
+      "steps": 1,
+      "totalMs": 26917,
+      "peakRssKiB": 1834676,
+      "status": "PASS",
+      "visuallyReviewed": true
+    },
+    {
+      "modelId": "SDXL_TURBO_LITERT",
+      "device": "Pixel 10 Pro Fold",
+      "soc": "Tensor G5",
+      "width": 512,
+      "height": 512,
+      "steps": 4,
+      "totalMs": 86904,
+      "peakRssKiB": 1833952,
+      "status": "PASS",
+      "visuallyReviewed": true
+    }
+  ],
+  "pixel10ProValidated": false,
+  "pixel11ProValidated": false,
+  "tensorTpuValidated": false,
+  "compactSdGpuStatus": "Unavailable: LiteRT 2.3 batch/layout shape compilation failure",
+  "sourceAudit": {
+    "modelCount": 4,
+    "fileCount": 136,
+    "sourceFileChecks": 164,
+    "sourceSnapshots": 6,
+    "status": "PASS"
+  }
+}

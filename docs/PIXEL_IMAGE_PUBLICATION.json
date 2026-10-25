@@ -1,0 +1,24 @@
+[
+  {
+    "repository": "frankdu/SD-Turbo-Mobile-INT8-LiteRT",
+    "revision": "ed4632ca6b15d482028d78d5273d1bf099e42656",
+    "public": true,
+    "gated": false,
+    "verifiedFiles": 68,
+    "bytes": 1328664499,
+    "runtimeBytes": 1319648533,
+    "allFileSizesAndHashesMatch": true,
+    "anonymousGraphDownloadVerified": true
+  },
+  {
+    "repository": "frankdu/SDXL-Turbo-Mobile-INT8-LiteRT",
+    "revision": "5b3c2dc38141133812847dcace2df4bd3d10d338",
+    "public": true,
+    "gated": false,
+    "verifiedFiles": 116,
+    "bytes": 3539400485,
+    "runtimeBytes": 3526213830,
+    "allFileSizesAndHashesMatch": true,
+    "anonymousGraphDownloadVerified": true
+  }
+]

@@ -63,7 +63,7 @@ fun ImageLabPage(state: LabState, controller: LabController) {
                 enabled = !state.busy, label = { Text(candidate.name.removeSuffix(" · LiteRT")) })
         }
     }
-    Text("${model.width} × ${model.height} · ${model.steps} step${if (model.steps == 1) "" else "s"} · ${decimal(model.bytes / 1e9)} GB shared CPU/GPU download",
+    Text("${model.width} × ${model.height} · ${model.steps} step${if (model.steps == 1) "" else "s"} · ${decimal(model.bytes / 1e9)} GB ${if (model.gpuUnavailableReason == null) "shared CPU/GPU" else "CPU"} download",
         style = MaterialTheme.typography.bodySmall)
     Text("Backend", style = MaterialTheme.typography.titleMedium)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -99,7 +99,11 @@ class LiteRtImageBundles(private val context: Context, private val portable: Boo
                 if (action["phase"].asString == "denoise" && (graph.contains("unet-") || graph.contains("dit-"))) neuralOffloaded += coverage["offloadedOps"].asLong
             }
             action.getAsJsonArray("inputs").forEach { require(it.asJsonObject["tensor"].asString in tensors) { "Invalid tensor dependency" } }
-            action.getAsJsonArray("outputs").forEach { require(tensors.add(it.asJsonObject["tensor"].asString)) { "Duplicate tensor output" } }
+            val inputNames = action.getAsJsonArray("inputs").map { it.asJsonObject["name"].asString }.toSet()
+            action.getAsJsonArray("outputs").forEach {
+                it.asJsonObject["aliasOfInput"]?.let { alias -> require(alias.asString in inputNames) { "Invalid output/input alias" } }
+                require(tensors.add(it.asJsonObject["tensor"].asString)) { "Duplicate tensor output" }
+            }
         }
         require(portable || neuralOffloaded > 0) { "No denoiser operations were compiled for TPU; cannot report this as a TPU method." }
         require(m["output"].asString in tensors)

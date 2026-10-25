@@ -4,7 +4,8 @@ package dev.gemmabench.imagegen
 fun imageBackendSupport(models: List<ImageModel>, installed: Set<String>, tpuBundles: Set<String>,
     cpu: Boolean, gpu: Boolean, npu: Boolean, nativeGpu: Boolean, soc: String?): List<ImageMethodSupport> {
     val ids = models.map { it.id }.toSet()
-    val gpuCompatible = models.filter { if (it.pipeline == ImagePipeline.NATIVE) nativeGpu else gpu }.map { it.id }.toSet()
+    val gpuCompatible = models.filter { it.gpuUnavailableReason == null &&
+        (if (it.pipeline == ImagePipeline.NATIVE) nativeGpu else gpu) }.map { it.id }.toSet()
     val tpuReady = if (npu && soc != null) tpuBundles.intersect(ids) else emptySet()
     return listOf(
         ImageMethodSupport(ImageMethod.CPU, cpu, "LiteRT CPU · 4 threads", if (cpu) installed.intersect(ids) else emptySet(), ids,
@@ -16,6 +17,7 @@ fun imageBackendSupport(models: List<ImageModel>, installed: Set<String>, tpuBun
         ImageMethodSupport(ImageMethod.GPU, gpu || nativeGpu, "LiteRT FP32 GPU · compatibility checked during generation",
             installed.intersect(gpuCompatible), gpuCompatible,
             models.associate { it.id to when {
+                it.gpuUnavailableReason != null -> it.gpuUnavailableReason
                 it.id !in gpuCompatible -> "GPU runtime unavailable on this device/build."
                 it.id !in installed -> "Download and verify the model first."
                 it.pipeline == ImagePipeline.BONSAI_LITERT -> "FP32 GPU denoiser · text encoder and VAE on CPU"
