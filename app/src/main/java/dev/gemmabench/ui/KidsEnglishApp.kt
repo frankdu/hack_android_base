@@ -89,7 +89,7 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                         Text(when {
                             settingsOpen -> "Settings"
                             voice.word != null -> "Word assistant"
-                            else -> selectedCategory?.let { categories.getOrNull(it)?.name } ?: "English words"
+                            else -> selectedCategory?.let { categories.getOrNull(it)?.name } ?: "Wonder World"
                         }, maxLines = 2)
                     },
                     navigationIcon = {
@@ -148,7 +148,7 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                         ) {
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("${category.items.size} words to explore", style = MaterialTheme.typography.bodyLarge)
+                                    Text("${category.items.size} words to explore with Gemma", style = MaterialTheme.typography.bodyLarge)
                                     Text("Tap a word to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}. Tap the sparkle to explore it with Gemma.",
                                         style = MaterialTheme.typography.bodyMedium)
                                 }
@@ -191,7 +191,7 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                     ) {
                         item {
                             Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Let’s learn a new word!", style = MaterialTheme.typography.headlineMedium,
+                                Text("Let's explore the world by words!", style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.SemiBold)
                                 Text("Choose a category to explore.", style = MaterialTheme.typography.bodyLarge)
                                 Text("${categories.size} categories", color = MaterialTheme.colorScheme.primary,
@@ -210,8 +210,20 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                                             }
                                         }
                                     },
-                                    trailingContent = { Text("›", style = MaterialTheme.typography.headlineSmall) },
+                                    trailingContent = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(onClick = { agent.end(); speech.speakDefault(entry.name) }) {
+                                                SpeakingIcon(playing = speechState.activeWord == entry.name && speechState.isSpeaking,
+                                                    contentDescription = "Speak ${entry.name}")
+                                            }
+                                            Text("›", style = MaterialTheme.typography.headlineSmall)
+                                        }
+                                    },
                                 )
+                                speechState.lastError?.takeIf { it.first == entry.name }?.let { (_, message) ->
+                                    Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
