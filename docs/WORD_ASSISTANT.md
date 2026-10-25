@@ -18,6 +18,8 @@ Dictionary playback is shown with outward-moving sound waves on the speaker icon
 
 The same `LabController` worker and `LiteRtRuntime` own native engine resources for both the lab and assistant. Audio modality/backend metadata is checked before initialization, and the engine is reused between transcription and response requests. A lab operation already in progress produces a retry message. The model gets a fresh bounded context per request; recent text dialogue supplies memory without accumulating raw audio or exhausting a native chat session. Replies are capped at 192 output tokens and prompted to use at most fifty spoken words.
 
+Replies omit image bytes by default. A session-owned coroutine job starts after foreground reply generation, using the same Gemma worker to produce a bounded `Caption:` and `Summary:` for the displayed image. Its tokens never enter chat or TTS. Completed descriptions are added silently to later text prompts and cached by image bytes and caption instructions. A foreground transcription or reply cancels unfinished captioning and joins its native cleanup before requesting inference; captioning can retry after the next reply. Switching words discards the previous in-memory context, and late cancelled results cannot attach to a new word. Backgrounding or leaving the assistant cancels unfinished work; completed cache entries remain reusable. The image-input switch in Settings enables direct-image replies for comparison. See [bundled word images](LOCAL_WORD_IMAGES.md).
+
 The assistant uses an 8,192-token context when model metadata is missing or reports a nonpositive context size (as the standard E4B artifact does). Positive dynamic limits cap that default; positive fixed limits are preserved. An unknown size must never be passed to LiteRT-LM as a zero-token engine context.
 
 The speech adapter is an application-controlled `speakText(text, onRange)` operation, rather than model-generated tool syntax. Complete sentences enter an ordered queue as model text streams, allowing playback to begin before the entire reply is generated. The microphone stays closed until all queued speech completes, with a short delay for the speaker's audio tail. Cancellation invalidates callbacks and cancels active JNI processing. A recognized stop request pauses after its reply. Child-appropriate prompting guides the model but does not constitute a separately trained content filter.
@@ -39,6 +41,12 @@ This uses the Kokoro config prepared by `prepare_dictionary_tts.py` and `misaki=
 ## Validation
 
 [Validation measurements](WORD_ASSISTANT_VALIDATION.json) record the local speech checks and remaining device work.
+
+`VoiceAgentTest` also covers text-only introductions, hidden image context on follow-ups, direct-image opt-in, foreground preemption with delayed native cleanup, late results when switching words, and caption failures. `WordImageCaptionTest` covers response validation and disk cache invalidation. Opt in to a real on-device caption plus text-only follow-up check with:
+
+```sh
+adb shell am instrument -w -e wordImageCaptionInference true -e class dev.gemmabench.VoiceInferenceInstrumentedTest#backgroundCaptionGroundsTextOnlyFollowup dev.gemmabench.test/androidx.test.runner.AndroidJUnitRunner
+```
 
 `VoiceAgentTest` checks sentence chunking, displayed character ranges, WAV encoding, speaking-before-listening, Gemma transcription routing, conversation history, silence handling and cancellation. `KidsEnglishInstrumentedTest` checks the two icon controls, navigation, settings and missing-model recovery. Two generated-speech tests in `DictionarySpeechInstrumentedTest` exercise real local ONNX sentence synthesis, word timing and saved-voice playback highlighting.
 

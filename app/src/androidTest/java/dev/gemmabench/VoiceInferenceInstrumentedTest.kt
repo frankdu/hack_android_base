@@ -17,10 +17,86 @@ import org.junit.runner.RunWith
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
+import java.util.concurrent.CopyOnWriteArrayList
+import java.io.File
 
 /** Opt-in real Gemma audio test: -e voiceInference true, with an installed multimodal E2B/E4B. */
 @RunWith(AndroidJUnit4::class)
 class VoiceInferenceInstrumentedTest {
+    @Test fun backgroundCaptionGroundsTextOnlyFollowup() = runBlocking {
+        assumeTrue("Enable with -e wordImageCaptionInference true",
+            InstrumentationRegistry.getArguments().getString("wordImageCaptionInference") == "true")
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as GemmaBenchApplication
+        withTimeout(30_000) { while (app.lab.state.value.busy) delay(50) }
+        assumeTrue("Install a multimodal Gemma model first", app.lab.state.value.models.any {
+            it.metadata?.visionSupported == true && it.metadata.audioSupported == true
+        })
+        val jpeg = requireNotNull(BundledWordImages(app.assets).jpeg("dog", "animal"))
+        val directory = File(app.cacheDir, "caption-validation-${System.nanoTime()}")
+        val cache = WordImageCaptionCache(directory)
+        val requests = CopyOnWriteArrayList<Pair<String, Boolean>>()
+        val spoken = CopyOnWriteArrayList<String>()
+        val captionResult = CompletableDeferred<String>()
+        val model = object : VoiceModel {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
+                requests += prompt to (jpeg != null)
+                val start = android.os.SystemClock.elapsedRealtime()
+                try {
+                    var result: String? = null
+                    while (result == null) {
+                        try { result = app.lab.voiceText(prompt, audio, jpeg, onText) }
+                        catch (error: IllegalStateException) {
+                            if (!error.message.orEmpty().startsWith("The local model is busy.")) throw error
+                            delay(100)
+                        }
+                    }
+                    Log.i("VoiceInference", "${if (jpeg != null) "Background caption" else "Text reply"}: " +
+                        "${android.os.SystemClock.elapsedRealtime() - start} ms; $result")
+                    if (jpeg != null) captionResult.complete(result)
+                    return result
+                } catch (error: Exception) {
+                    captionResult.completeExceptionally(error)
+                    throw error
+                }
+            }
+            override fun cancel() = app.lab.cancelVoiceInference()
+        }
+        val input = object : VoiceInput {
+            override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? = awaitCancellation()
+            override fun finish() {}
+            override fun cancel() {}
+        }
+        val output = object : VoiceOutput {
+            override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) { spoken += text }
+            override fun stop() {}
+        }
+        val agent = withContext(Dispatchers.Main) {
+            VoiceAgentController(model, input, output, image = { _, _ -> jpeg }, captionCache = cache)
+        }
+        try {
+            withContext(Dispatchers.Main) { agent.start("dog", "animal", true) }
+            val raw = withTimeout(600_000) { captionResult.await() }
+            val description = requireNotNull(WordImageCaption.parse(raw)) { "Incomplete caption: $raw" }
+            withTimeout(10_000) {
+                while (cache.read(jpeg, VoicePrompts.caption("dog", "animal")) == null) delay(50)
+            }
+            assertFalse("The introduction must not send an image", requests.first().second)
+            assertTrue("Only the background request sees the image", requests[1].second)
+            withContext(Dispatchers.Main) { agent.send("What does the dog in this picture look like?") }
+            withTimeout(600_000) {
+                while (agent.state.value.messages.count { !it.child } < 2) delay(50)
+            }
+            assertEquals(3, requests.size)
+            assertFalse(requests.last().second)
+            assertTrue(requests.last().first.contains(description.context))
+            assertFalse(agent.state.value.messages.any { it.text.contains("Caption:") || it.text.contains("Summary:") })
+            assertFalse(spoken.any { it.contains("Caption:") || it.contains("Summary:") })
+        } finally {
+            withContext(Dispatchers.Main) { agent.close() }
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun bundledWordIllustrationProducesASpokenReply() = runBlocking {
         assumeTrue("Enable with -e wordImageInference true",
             InstrumentationRegistry.getArguments().getString("wordImageInference") == "true")
@@ -122,6 +198,7 @@ class VoiceInferenceInstrumentedTest {
                 app.preferences.reset()
                 saved.speechEngine?.let(app.preferences::setSpeechEngine)
                 app.preferences.setAssistantShowTextInput(saved.assistantShowTextInput)
+                app.preferences.setAssistantIncludeImage(saved.assistantIncludeImage)
             } else app.preferences.setLlmFamily(savedFamily)
         }
     }

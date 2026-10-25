@@ -49,62 +49,216 @@ class VoiceAgentTest {
     }
 
     @Test fun microphoneWaitsForSpeechThenGemmaTranscribesAndAnswersWithHistory() = runTest(dispatcher) {
-        val events = mutableListOf<String>()
+        for (includeImage in listOf(true, false)) {
+            val events = mutableListOf<String>()
+            val prompts = mutableListOf<String>()
+            val images = mutableListOf<ByteArray?>()
+            val captions = mutableListOf<String>()
+            val illustration = byteArrayOf(7, 8, 9)
+            var imageLoads = 0
+            var captures = 0
+            val model = object : VoiceModel {
+                override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
+                    if (prompt == VoicePrompts.caption("dog", "animal")) {
+                        assertArrayEquals(illustration, jpeg)
+                        assertNull(audio)
+                        captions += prompt
+                        return "Caption: A brown dog sits.\nSummary: The dog has a red collar and a white background."
+                    }
+                    prompts += prompt
+                    images += jpeg
+                    if (audio != null) { events += "transcribe"; return "Why do dogs bark?" }
+                    val reply = if (prompts.size == 1) "A dog is a friendly animal. What would you like to know?" else "Dogs bark to communicate."
+                    onText(reply)
+                    return reply
+                }
+                override fun cancel() { events += "cancelModel" }
+            }
+            val input = object : VoiceInput {
+                override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? {
+                    events += "listen"
+                    return if (captures++ == 0) byteArrayOf(1) else null
+                }
+                override fun cancel() {}
+                override fun finish() {}
+            }
+            val speech = object : VoiceOutput {
+                override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) {
+                    events += "speak:$text"; onRange(0, 1); delay(100); events += "finished"
+                }
+                override fun stop() {}
+            }
+            VoiceAgentController(model, input, speech, image = { word, category ->
+                assertEquals("dog", word)
+                assertEquals("animal", category)
+                imageLoads++
+                illustration
+            }, includeImage = { includeImage }).use { agent ->
+                agent.start("dog", "animal", true)
+                runCurrent()
+                assertFalse(events.contains("listen"))
+                assertEquals(0, agent.state.value.highlight!!.first)
+                advanceUntilIdle()
+                assertEquals(listOf("speak:A dog is a friendly animal.", "finished", "speak:What would you like to know?", "finished",
+                    "listen", "transcribe", "speak:Dogs bark to communicate.", "finished", "listen"), events)
+                assertTrue(prompts.last().contains("Child: Why do dogs bark?"))
+                assertTrue(prompts.last().contains("Gemma: A dog is a friendly animal."))
+                assertEquals(VoicePhase.PAUSED, agent.state.value.phase)
+                assertNull(agent.state.value.highlight)
+                assertEquals(3, agent.state.value.messages.size)
+                assertEquals(1, imageLoads)
+                assertEquals(if (includeImage) 0 else 1, captions.size)
+                assertEquals(3, images.size)
+                assertArrayEquals(if (includeImage) illustration else null, images[0])
+                assertNull(images[1]) // Speech transcription gets audio only.
+                assertArrayEquals(if (includeImage) illustration else null, images[2])
+                assertEquals(includeImage, prompts.first().contains("attached illustration"))
+                assertEquals(includeImage, prompts.last().contains("attached illustration"))
+                assertFalse(prompts.first().contains("<image_description>"))
+                assertEquals(!includeImage, prompts.last().contains("red collar"))
+                assertFalse(agent.state.value.messages.any { it.text.contains("Caption:") || it.text.contains("red collar") })
+            }
+        }
+    }
+
+    @Test fun foregroundPreemptsCaptionWaitsForCleanupAndRetriesSilently() = runTest(dispatcher) {
         val prompts = mutableListOf<String>()
-        val images = mutableListOf<ByteArray?>()
-        val illustration = byteArrayOf(7, 8, 9)
-        var imageLoads = 0
-        var captures = 0
+        val spoken = mutableListOf<String>()
+        var captionAttempts = 0
+        var modelActive = false
+        var cleanedUp = false
+        val description = "Caption: A brown dog sits.\nSummary: It wears a red collar."
         val model = object : VoiceModel {
             override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
-                prompts += prompt
-                images += jpeg
-                if (audio != null) { events += "transcribe"; return "Why do dogs bark?" }
-                val reply = if (prompts.size == 1) "A dog is a friendly animal. What would you like to know?" else "Dogs bark to communicate."
-                onText(reply)
-                return reply
-            }
-            override fun cancel() { events += "cancelModel" }
-        }
-        val input = object : VoiceInput {
-            override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? {
-                events += "listen"
-                return if (captures++ == 0) byteArrayOf(1) else null
+                assertFalse("Native requests must never overlap", modelActive)
+                modelActive = true
+                val isCaption = jpeg != null
+                try {
+                    if (isCaption) {
+                        captionAttempts++
+                        onText("Caption: Never show or speak this partial result.")
+                        if (captionAttempts == 1) awaitCancellation()
+                        return description
+                    }
+                    prompts += prompt
+                    val reply = "Dogs are friendly."
+                    onText(reply)
+                    return reply
+                } finally {
+                    if (isCaption && captionAttempts == 1) {
+                        withContext(NonCancellable) { delay(50); cleanedUp = true }
+                    }
+                    modelActive = false
+                }
             }
             override fun cancel() {}
-            override fun finish() {}
         }
-        val speech = object : VoiceOutput {
-            override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) {
-                events += "speak:$text"; onRange(0, 1); delay(100); events += "finished"
-            }
+        val input = object : VoiceInput {
+            override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? = awaitCancellation()
+            override fun finish() {}
+            override fun cancel() {}
+        }
+        val output = object : VoiceOutput {
+            override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) { spoken += text }
             override fun stop() {}
         }
-        VoiceAgentController(model, input, speech, image = { word, category ->
-            assertEquals("dog", word)
-            assertEquals("animal", category)
-            imageLoads++
-            illustration
-        }).use { agent ->
+        VoiceAgentController(model, input, output, image = { _, _ -> byteArrayOf(1) }).use { agent ->
             agent.start("dog", "animal", true)
             runCurrent()
-            assertFalse(events.contains("listen"))
-            assertEquals(0, agent.state.value.highlight!!.first)
+            assertEquals(1, prompts.size)
+            assertEquals(1, captionAttempts)
+            assertFalse(prompts.first().contains("<image_description>"))
+            agent.send("What color is it?")
+            runCurrent()
+            assertEquals("Wait for caption JNI cleanup before using Gemma again", 1, prompts.size)
             advanceUntilIdle()
-            assertEquals(listOf("speak:A dog is a friendly animal.", "finished", "speak:What would you like to know?", "finished",
-                "listen", "transcribe", "speak:Dogs bark to communicate.", "finished", "listen"), events)
-            assertTrue(prompts.last().contains("Child: Why do dogs bark?"))
-            assertTrue(prompts.last().contains("Gemma: A dog is a friendly animal."))
+            assertTrue(cleanedUp)
+            assertEquals(2, prompts.size)
+            assertEquals(2, captionAttempts)
+            assertFalse(prompts.last().contains("<image_description>"))
+            agent.send("What is around its neck?")
+            advanceUntilIdle()
+            assertTrue(prompts.last().contains(description))
+            assertEquals(2, captionAttempts)
+            assertEquals(listOf("Dogs are friendly.", "Dogs are friendly.", "Dogs are friendly."), spoken)
+            assertFalse(agent.state.value.messages.any { it.text.contains("Caption:") })
+        }
+    }
+
+    @Test fun changingWordsDiscardsLateCaptionAndWaitsForOldNativeRequest() = runTest(dispatcher) {
+        val prompts = mutableListOf<String>()
+        var modelActive = false
+        var cancellations = 0
+        val model = object : VoiceModel {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
+                assertFalse(modelActive)
+                modelActive = true
+                try {
+                    if (jpeg != null) {
+                        if (jpeg[0] == 1.toByte()) {
+                            // Simulate a native encoder that returns a result despite a stop request.
+                            withContext(NonCancellable) { delay(100) }
+                            return "Caption: Old dog.\nSummary: A red collar."
+                        }
+                        return "Caption: New cat.\nSummary: A blue cushion."
+                    }
+                    prompts += prompt
+                    return "Cats are animals."
+                } finally { modelActive = false }
+            }
+            override fun cancel() { cancellations++ }
+        }
+        val input = object : VoiceInput {
+            override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? = null
+            override fun finish() {}
+            override fun cancel() {}
+        }
+        val output = object : VoiceOutput {
+            override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) {}
+            override fun stop() {}
+        }
+        VoiceAgentController(model, input, output,
+            image = { word, _ -> byteArrayOf(if (word == "dog") 1 else 2) }).use { agent ->
+            agent.start("dog", "animal", false)
+            runCurrent()
+            agent.start("cat", "animal", false)
+            advanceUntilIdle()
+            assertTrue(cancellations > 0)
+            agent.send("What is in the picture?")
+            advanceUntilIdle()
+            assertTrue(prompts.single().contains("blue cushion"))
+            assertFalse(prompts.single().contains("red collar"))
+            assertEquals("cat", agent.state.value.word)
+        }
+    }
+
+    @Test fun failedCaptionLeavesConversationUsableAndCanRetry() = runTest(dispatcher) {
+        var attempts = 0
+        val model = object : VoiceModel {
+            override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit): String {
+                if (jpeg != null) { attempts++; error("Vision unavailable") }
+                return "Dogs are friendly."
+            }
+            override fun cancel() {}
+        }
+        val input = object : VoiceInput {
+            override suspend fun capture(onLevel: (Float) -> Unit): ByteArray? = null
+            override fun finish() {}
+            override fun cancel() {}
+        }
+        val output = object : VoiceOutput {
+            override suspend fun speakText(text: String, onRange: (Int, Int) -> Unit) {}
+            override fun stop() {}
+        }
+        VoiceAgentController(model, input, output, image = { _, _ -> byteArrayOf(1) }).use { agent ->
+            agent.start("dog", "animal", true)
+            advanceUntilIdle()
+            agent.send("Why do dogs bark?")
+            advanceUntilIdle()
+            assertEquals(2, attempts)
             assertEquals(VoicePhase.PAUSED, agent.state.value.phase)
-            assertNull(agent.state.value.highlight)
             assertEquals(3, agent.state.value.messages.size)
-            assertEquals(1, imageLoads)
-            assertEquals(3, images.size)
-            assertArrayEquals(illustration, images[0]) // Opening explanation sees the picture.
-            assertNull(images[1]) // Speech transcription gets audio only.
-            assertArrayEquals(illustration, images[2]) // Follow-up sees the same picture.
-            assertTrue(prompts.first().contains("attached illustration"))
-            assertTrue(prompts.last().contains("attached illustration"))
+            assertFalse(agent.state.value.detail.orEmpty().contains("Vision unavailable"))
         }
     }
 

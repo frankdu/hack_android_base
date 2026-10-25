@@ -102,15 +102,28 @@ class KidsEnglishInstrumentedTest {
                 awaitText("100 categories")
                 clickDescription("Settings")
                 awaitText("Text-to-speech Engine")
+                assertFalse(app.preferences.state.value.assistantIncludeImage)
+                clickText("Assistant: include image in Gemma input")
+                assertTrue(app.preferences.state.value.assistantIncludeImage)
+                scenario.recreate()
+                awaitText("Assistant: include image in Gemma input")
+                assertTrue(AppPreferencesStore(instrumentation.targetContext).state.value.assistantIncludeImage)
+                clickText("Assistant: include image in Gemma input")
+                assertFalse(app.preferences.state.value.assistantIncludeImage)
+                assertFalse("Image opt-in should be persisted off immediately",
+                    AppPreferencesStore(instrumentation.targetContext).state.value.assistantIncludeImage)
                 clickDescription("Text-to-speech Engine: Kokoro TTS")
                 assertEquals(SpeechOption.KOKORO, app.preferences.state.value.speechEngine)
+                assertFalse("Selecting speech must preserve image opt-out", app.preferences.state.value.assistantIncludeImage)
                 clickDescription("Default Local LLM: Gemma 4 E4B")
                 assertEquals(ModelSlot.E4B, app.preferences.state.value.llmFamily)
+                assertFalse("Selecting an LLM must preserve image opt-out", app.preferences.state.value.assistantIncludeImage)
                 scenario.recreate()
                 awaitText("Settings")
                 val reloaded = AppPreferencesStore(instrumentation.targetContext).state.value
                 assertEquals(SpeechOption.KOKORO, reloaded.speechEngine)
                 assertEquals(ModelSlot.E4B, reloaded.llmFamily)
+                assertFalse(reloaded.assistantIncludeImage)
                 clickDescription("Back")
                 clickText("animal")
                 awaitText("Tap a word to hear Kokoro TTS")
@@ -131,6 +144,8 @@ class KidsEnglishInstrumentedTest {
                 app.preferences.reset()
                 saved.speechEngine?.let(app.preferences::setSpeechEngine)
                 saved.llmFamily?.let(app.preferences::setLlmFamily)
+                app.preferences.setAssistantShowTextInput(saved.assistantShowTextInput)
+                app.preferences.setAssistantIncludeImage(saved.assistantIncludeImage)
             }
         }
     }

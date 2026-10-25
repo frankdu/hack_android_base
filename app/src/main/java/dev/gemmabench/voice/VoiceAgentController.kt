@@ -3,6 +3,7 @@ package dev.gemmabench.voice
 import android.content.Context
 import dev.gemmabench.LabController
 import dev.gemmabench.data.BundledWordImages
+import dev.gemmabench.settings.AppPreferencesStore
 import dev.gemmabench.tts.SpeechController
 import dev.gemmabench.tts.SpeechSentences
 import kotlinx.coroutines.*
@@ -10,6 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.io.File
 
 enum class VoicePhase { THINKING, SPEAKING, LISTENING, TRANSCRIBING, PAUSED, ERROR }
 data class VoiceAgentState(
@@ -38,8 +40,11 @@ interface VoiceOutput {
 
 class VoiceAgentController(private val model: VoiceModel, private val recorder: VoiceInput,
                            private val speech: VoiceOutput,
-                           private val image: suspend (String, String) -> ByteArray? = { _, _ -> null }) : AutoCloseable {
-    constructor(context: Context, lab: LabController, speech: SpeechController) : this(
+                           private val image: suspend (String, String) -> ByteArray? = { _, _ -> null },
+                           private val includeImage: () -> Boolean = { false },
+                           private val captionCache: WordImageCaptionCache? = null) : AutoCloseable {
+    constructor(context: Context, lab: LabController, speech: SpeechController,
+                preferences: AppPreferencesStore) : this(
         object : VoiceModel {
             override suspend fun generate(prompt: String, audio: ByteArray?, jpeg: ByteArray?, onText: (String) -> Unit) =
                 lab.voiceText(prompt, audio, jpeg, onText)
@@ -49,19 +54,24 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
             override fun stop() = speech.stop()
         }, { word, category ->
             withContext(Dispatchers.IO) { BundledWordImages(context.applicationContext.assets).jpeg(word, category) }
-        })
+        }, { preferences.state.value.assistantIncludeImage },
+        WordImageCaptionCache(File(context.applicationContext.cacheDir, "word-image-captions")))
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutable = MutableStateFlow(VoiceAgentState())
     val state = mutable.asStateFlow()
     private var job: Job? = null
     @Volatile private var generation = 0L
     private var inferenceActive = false
+    private var captionJob: Job? = null
+    private var captionInferenceActive = false
+    private var imageDescription: WordImageCaption? = null
 
     fun start(word: String, category: String, microphoneAllowed: Boolean) {
         end()
         mutable.value = VoiceAgentState(word = word, category = category)
         if (!microphoneAllowed) {
             mutable.update { it.copy(detail = "Allow microphone access in Android app settings, or type a question below.") }
+            startCaption(generation, previousTurn = job)
             return
         }
         runTurn(intro = true)
@@ -78,8 +88,9 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
         job = scope.launch {
             try {
                 previous?.join()
+                captionJob?.join()
                 val selected = state.value
-                val jpeg = image(selected.word!!, selected.category)
+                val jpeg = if (includeImage()) image(selected.word!!, selected.category) else null
                 var next = question
                 var opening = intro
                 while (isActive && id == generation) {
@@ -104,7 +115,8 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
                     val stopAfterReply = next?.let(VoicePrompts::wantsToStop) == true
                     mutable.update { it.copy(phase = VoicePhase.THINKING, detail = null, speakingText = "", highlight = null) }
                     val snapshot = state.value
-                    sayReply(VoicePrompts.reply(snapshot.word!!, snapshot.category, snapshot.messages, jpeg != null), id, jpeg)
+                    sayReply(VoicePrompts.reply(snapshot.word!!, snapshot.category, snapshot.messages, jpeg != null,
+                        imageContext = imageDescription?.context), id, jpeg)
                     if (stopAfterReply) {
                         mutable.update { it.copy(phase = VoicePhase.PAUSED, detail = "Tap Talk whenever you want to explore more.") }
                         break
@@ -126,8 +138,51 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
 
     private suspend fun infer(prompt: String, audio: ByteArray? = null, jpeg: ByteArray? = null,
                               onText: (String) -> Unit = {}): String {
+        // Foreground inference preempts image work, then waits for native cleanup on the shared worker.
+        cancelCaption()
+        captionJob?.join()
+        currentCoroutineContext().ensureActive()
         inferenceActive = true
         try { return model.generate(prompt, audio, jpeg, onText) } finally { inferenceActive = false }
+    }
+
+    /** Low-priority coroutine job: never publishes tokens, messages, speech or errors to the UI. */
+    private fun startCaption(id: Long, previousTurn: Job? = null) {
+        if (id != generation || includeImage() || imageDescription != null || captionJob?.isActive == true) return
+        val selected = state.value
+        val word = selected.word ?: return
+        val previousCaption = captionJob
+        captionJob = scope.launch {
+            try {
+                previousTurn?.join()
+                previousCaption?.join()
+                currentCoroutineContext().ensureActive()
+                val jpeg = image(word, selected.category) ?: return@launch
+                val prompt = VoicePrompts.caption(word, selected.category)
+                val cached = captionCache?.let { withContext(Dispatchers.IO) { it.read(jpeg, prompt) } }
+                currentCoroutineContext().ensureActive()
+                if (cached != null) {
+                    if (id == generation) imageDescription = cached
+                    return@launch
+                }
+                captionInferenceActive = true
+                val raw = try { model.generate(prompt, audio = null, jpeg = jpeg, onText = {}) }
+                    finally { captionInferenceActive = false }
+                currentCoroutineContext().ensureActive()
+                val description = WordImageCaption.parse(raw) ?: return@launch
+                if (id != generation) return@launch
+                imageDescription = description
+                captionCache?.let { withContext(Dispatchers.IO) { it.write(jpeg, prompt, description) } }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                // Optional context can be retried after a later reply; the normal assistant stays usable.
+            }
+        }
+    }
+
+    private fun cancelCaption() {
+        captionJob?.cancel()
+        if (captionInferenceActive) model.cancel()
     }
 
     private suspend fun sayReply(prompt: String, id: Long, jpeg: ByteArray?) = coroutineScope {
@@ -143,6 +198,8 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
                         previous = full
                     }
                 })
+                // Generation has released Gemma; image work can overlap TTS and microphone listening.
+                if (result.isNotBlank()) startCaption(id)
                 splitter.append(result.removePrefix(previous), finished = true).forEach { sentences.send(it) }
                 check(result.isNotBlank()) { "Gemma didn’t return a reply. Tap Talk to try again." }
             } finally { sentences.close() }
@@ -165,13 +222,13 @@ class VoiceAgentController(private val model: VoiceModel, private val recorder: 
     fun cancel() {
         generation++
         if (inferenceActive) model.cancel()
+        cancelCaption()
         job?.cancel()
-        job = null
         recorder.cancel()
         speech.stop()
         mutable.update { it.copy(phase = VoicePhase.PAUSED, speakingText = "", highlight = null,
             level = 0f, detail = "Tap Talk to continue.") }
     }
-    fun end() { cancel(); mutable.value = VoiceAgentState() }
+    fun end() { cancel(); imageDescription = null; mutable.value = VoiceAgentState() }
     override fun close() { end(); scope.cancel() }
 }

@@ -54,6 +54,19 @@ fun AppSettingsPage(preferences: AppPreferencesStore, speech: SpeechController,
                 Switch(checked = prefs.assistantShowTextInput, onCheckedChange = null)
             }
         }
+        Card(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().toggleable(value = prefs.assistantIncludeImage,
+                role = Role.Switch, onValueChange = preferences::setAssistantIncludeImage)
+                .padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Assistant: include image in Gemma input", style = MaterialTheme.typography.titleMedium)
+                    Text("Off by default for faster replies. Gemma describes the image in the background and uses the description as context. Turn on to send the image with every reply.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = prefs.assistantIncludeImage, onCheckedChange = null)
+            }
+        }
         Text("Text-to-speech Engine", style = MaterialTheme.typography.titleLarge)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.selectableGroup()) {

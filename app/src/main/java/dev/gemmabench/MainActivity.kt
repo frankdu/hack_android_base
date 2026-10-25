@@ -23,7 +23,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         speech = SpeechController(this)
-        agent = VoiceAgentController(this, (application as GemmaBenchApplication).lab, speech)
+        val app = application as GemmaBenchApplication
+        agent = VoiceAgentController(this, app.lab, speech, app.preferences)
         enableEdgeToEdge()
         setContent {
             val dictionary by produceState<DictionaryState>(DictionaryState.Loading) {

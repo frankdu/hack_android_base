@@ -1,6 +1,12 @@
 # Application defaults
 
-Settings contains two persistent selectors. Stored values use app-private SharedPreferences and survive activity recreation and app restart. Missing or unrecognized values use automatic defaults. **Reset defaults** clears both saved choices.
+Settings contains persistent assistant switches and voice/model selectors. Stored values use app-private SharedPreferences and survive activity recreation and app restart. Missing or unrecognized selectors use automatic defaults. **Reset defaults** clears the saved choices and restores switch defaults.
+
+## Assistant image input
+
+**Assistant: include image in Gemma input** defaults to off. Normal replies use text only. After reply generation releases Gemma, an asynchronous job captions and summarizes the selected word image while speech or listening continues. Once ready, the description becomes hidden context for later replies. It is never displayed or spoken separately. Completed descriptions are cached by image content and prompt; conversational text and audio are not part of that cache.
+
+A new question preempts unfinished captioning, waits for native cleanup, and retries captioning after its reply. Leaving the assistant or backgrounding the app cancels the job. Missing images and caption failures do not interrupt conversation. Turning the switch on sends the image with every reply instead and skips background captioning; existing explicit saved switch choices are retained on upgrade.
 
 ## Text-to-speech Engine
 

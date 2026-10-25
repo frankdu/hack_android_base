@@ -8,9 +8,16 @@ moved from `output/images/`. These originals occupy about 548 MB and are package
 and category names. Keep this folder's files when sharing or rebuilding the demo.
 
 The word list decodes small thumbnails off the main thread. The word assistant shows a larger
-illustration and sends its JPEG bytes to Gemma on the introduction and each follow-up reply.
-The prompt grounds explanations in the displayed illustration. Microphone transcription still
-receives audio only; the audio/vision engine stays loaded between turns. Assistant replies remain
+illustration. By default, introductions and follow-up replies send text only. After reply generation,
+a separate coroutine job sends the JPEG to Gemma once to produce a caption and visual summary.
+Completed descriptions are silently included as text context in subsequent replies; they are never
+shown as chat messages or spoken. Descriptions are cached in app-private storage by image content
+and caption prompt, so changed artwork or instructions invalidate the cache. Foreground questions
+cancel unfinished caption inference and wait for native cleanup; captioning retries after the reply.
+Leaving the assistant or backgrounding the app cancels unfinished work. A missing image, unavailable
+vision model or caption failure leaves the text conversation usable. The Settings switch
+**Assistant: include image in Gemma input** opts back into sending the JPEG with every reply.
+Microphone transcription receives audio only; the audio/vision engine stays loaded between turns. Assistant replies remain
 plain speech, while the photo lab retains its structured object-detection output.
 If a word has no bundled image, its row and assistant continue without an illustration.
 

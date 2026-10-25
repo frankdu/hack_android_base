@@ -12,6 +12,7 @@ data class AppPreferences(
     val speechEngine: SpeechOption? = null,
     val llmFamily: ModelSlot? = null,
     val assistantShowTextInput: Boolean = false,
+    val assistantIncludeImage: Boolean = false,
 )
 
 class AppPreferencesStore(context: Context) {
@@ -20,6 +21,7 @@ class AppPreferencesStore(context: Context) {
         SpeechOption.entries.firstOrNull { it.name == storage.getString("speech_engine", null) },
         listOf(ModelSlot.E2B, ModelSlot.E4B).firstOrNull { it.name == storage.getString("llm_family", null) },
         storage.getBoolean("assistant_show_text_input", false),
+        storage.getBoolean("assistant_include_image", false),
     )
     private val mutable = MutableStateFlow(read())
     val state = mutable.asStateFlow()
@@ -35,7 +37,11 @@ class AppPreferencesStore(context: Context) {
     fun setAssistantShowTextInput(show: Boolean) {
         storage.edit().putBoolean("assistant_show_text_input", show).apply()
     }
+    fun setAssistantIncludeImage(include: Boolean) {
+        storage.edit().putBoolean("assistant_include_image", include).apply()
+    }
     fun reset() {
-        storage.edit().remove("speech_engine").remove("llm_family").remove("assistant_show_text_input").apply()
+        storage.edit().remove("speech_engine").remove("llm_family").remove("assistant_show_text_input")
+            .remove("assistant_include_image").apply()
     }
 }
