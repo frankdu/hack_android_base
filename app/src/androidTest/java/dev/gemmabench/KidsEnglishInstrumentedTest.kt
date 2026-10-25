@@ -99,7 +99,7 @@ class KidsEnglishInstrumentedTest {
         try {
             instrumentation.runOnMainSync { app.preferences.reset() }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                awaitText("100 categories")
+                awaitText("Explore words with Gemma")
                 clickDescription("Settings")
                 awaitText("Text-to-speech Engine")
                 assertFalse(app.preferences.state.value.assistantIncludeImage)
@@ -126,7 +126,7 @@ class KidsEnglishInstrumentedTest {
                 assertFalse(reloaded.assistantIncludeImage)
                 clickDescription("Back")
                 clickText("animal")
-                awaitText("Tap a word to hear Kokoro TTS")
+                awaitText("Tap the speaker to hear Kokoro TTS")
                 awaitText("animal")
                 clickDescription("Back")
                 clickDescription("Settings")
@@ -152,7 +152,7 @@ class KidsEnglishInstrumentedTest {
 
     @Test fun everyVisibleWordHasSpeakAndAssistantIconButtons() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
             clickText("animal")
             awaitText("dog")
             for (description in listOf("Speak dog", "Talk about dog with Gemma")) {
@@ -175,46 +175,52 @@ class KidsEnglishInstrumentedTest {
         }
     }
 
-    @Test fun assistantExplainsMissingModelAndReturnsToSelectedWordList() {
+    @Test fun wordImageAndSparkleOpenAssistantAndReturnToSelectedWordList() {
         val app = instrumentation.targetContext.applicationContext as GemmaBenchApplication
         runBlocking { withTimeout(10_000) { while (app.lab.state.value.busy) delay(50) } }
-        org.junit.Assume.assumeTrue("Requires no installed model", app.lab.state.value.models.isEmpty())
+        val missingModel = app.lab.state.value.models.isEmpty()
         instrumentation.uiAutomation.grantRuntimePermission(instrumentation.targetContext.packageName,
             android.Manifest.permission.RECORD_AUDIO)
         ActivityScenario.launch(MainActivity::class.java).use {
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
             clickText("animal")
-            clickDescription("Talk about dog with Gemma")
-            awaitText("Word assistant")
-            awaitText("Download a multimodal Gemma model")
-            awaitText("Type a question")
-            clickDescription("Back")
-            awaitText("Tap a word to hear")
-            awaitText("dog")
-            assertNotNull(findDescription(instrumentation.uiAutomation.rootInActiveWindow, "Speak dog"))
+            awaitText("Explore the wonder of animal")
+            for (openAssistant in listOf<() -> Unit>(
+                { clickText("dog") },
+                { clickDescription("Illustration of dog") },
+                { clickDescription("Talk about dog with Gemma") },
+            )) {
+                openAssistant()
+                awaitText("Word assistant")
+                if (missingModel) awaitText("Download a multimodal Gemma model")
+                clickDescription("Back")
+                awaitText("Explore the wonder of animal")
+                awaitText("dog")
+                assertNotNull(findDescription(instrumentation.uiAutomation.rootInActiveWindow, "Speak dog"))
+            }
         }
     }
 
     @Test fun opensCategoryRestoresAfterRecreationAndReturnsWithSystemBack() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
             clickText("animal")
             awaitText("dog")
             awaitText("cat")
             scenario.recreate()
             awaitText("dog")
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
             clickText("bird")
             awaitText("robin")
             clickDescription("Back")
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
         }
     }
 
     @Test fun opensResearchLabFromSettingsAndReturnsToDictionary() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            awaitText("100 categories")
+            awaitText("Explore words with Gemma")
             clickDescription("Settings")
             val monitor = instrumentation.addMonitor(ResearchLabActivity::class.java.name, null, false)
             try {
@@ -225,7 +231,7 @@ class KidsEnglishInstrumentedTest {
                 instrumentation.runOnMainSync { (lab as ResearchLabActivity).onBackPressedDispatcher.onBackPressed() }
                 awaitText("Research Lab")
                 clickDescription("Back")
-                awaitText("100 categories")
+                awaitText("Explore words with Gemma")
             } finally {
                 instrumentation.removeMonitor(monitor)
             }

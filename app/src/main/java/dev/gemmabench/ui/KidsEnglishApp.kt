@@ -148,8 +148,8 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                         ) {
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("${category.items.size} words to explore with Gemma", style = MaterialTheme.typography.bodyLarge)
-                                    Text("Tap a word to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}. Tap the sparkle to explore it with Gemma.",
+                                    Text("Explore the wonder of ${category.name}", style = MaterialTheme.typography.bodyLarge)
+                                    Text("Tap a word or image to explore it with Gemma. Tap the speaker to hear ${speechState.defaultOption?.settingsLabel ?: "the default voice"}.",
                                         style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
@@ -162,11 +162,13 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                                             Text("${index + 1}", color = MaterialTheme.colorScheme.primary,
                                                 style = MaterialTheme.typography.labelLarge)
                                             BundledWordImage(word, category.name, size = 56.dp,
-                                                modifier = Modifier.size(56.dp))
+                                                modifier = Modifier.size(56.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                                    openAssistant(word, category.name)
+                                                })
                                             Text(word, style = MaterialTheme.typography.headlineSmall,
                                                 modifier = Modifier.weight(1f).clickable(role = androidx.compose.ui.semantics.Role.Button) {
-                                                    agent.end(); speech.speakDefault(word)
-                                                }.semantics { contentDescription = "Play $word with default voice" })
+                                                    openAssistant(word, category.name)
+                                                }.semantics { contentDescription = "Explore $word with Gemma" })
                                             IconButton(onClick = { agent.end(); speech.speakDefault(word) }) {
                                                 SpeakingIcon(playing = speechState.activeWord == word && speechState.isSpeaking,
                                                     contentDescription = "Speak $word")
@@ -191,11 +193,8 @@ fun KidsEnglishApp(dictionary: DictionaryState, speech: SpeechController, prefer
                     ) {
                         item {
                             Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Let's explore the world by words!", style = MaterialTheme.typography.headlineMedium,
+                                Text("Explore words with Gemma", style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.SemiBold)
-                                Text("Choose a category to explore.", style = MaterialTheme.typography.bodyLarge)
-                                Text("${categories.size} categories", color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.labelLarge)
                             }
                         }
                         itemsIndexed(categories) { index, entry ->
