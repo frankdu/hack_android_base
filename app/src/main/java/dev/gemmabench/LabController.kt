@@ -119,8 +119,9 @@ class LabController(private val app: Application) {
             step = 0, steps = 0), progress = "Image benchmark · ${run.successful} generated · ${run.failed} failed · ${run.pending} remaining") }
     }
 
-    fun startImageBenchmark(modelIds: Set<String>, methods: Set<ImageMethod>, timeoutMinutes: Int) {
-        if (!begin("Preparing 30-word image benchmark…", inference = true)) return
+    fun startImageBenchmark(modelIds: Set<String>, methods: Set<ImageMethod>, timeoutMinutes: Int,
+        wordCount: Int = ImageBenchmarkSuite.MAX_WORD_COUNT) {
+        if (!begin("Preparing $wordCount-word image benchmark…", inference = true)) return
         imageBenchmarkRunner.resetStop()
         imageBenchmarkClient.resetStop()
         mutable.update { it.copy(imageBenchmarkRunning = true) }
@@ -138,7 +139,8 @@ class LabController(private val app: Application) {
                 val now = System.currentTimeMillis()
                 val plan = newImageBenchmarkRun(java.util.UUID.randomUUID().toString(), now,
                     "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · ${android.os.Build.SOC_MODEL} · ${android.os.Build.FINGERPRINT}",
-                    selected, requested, timeoutMinutes, includeUnavailable = selected.all { it.pipeline != ImagePipeline.NATIVE })
+                    selected, requested, timeoutMinutes, includeUnavailable = selected.all { it.pipeline != ImagePipeline.NATIVE },
+                    wordCount = wordCount)
                 val bundleHashes = plan.samples.filter { it.status == ImageSampleStatus.PENDING &&
                     (it.method == ImageMethod.TPU || ImageModels.get(it.modelId).pipeline == ImagePipeline.LITERT_PLAN) }
                     .distinctBy { it.modelId to it.method }.associate { sample ->

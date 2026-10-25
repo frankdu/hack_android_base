@@ -52,6 +52,38 @@ class ImageBenchmarkTest {
         assertTrue(repo.run.samples.filter { it.modelId == "IRIS_LITERT" }.all { it.status == ImageSampleStatus.SUCCESS })
     }
 
+    @Test fun selectedWordCountLimitsEveryCombinationIncludingSkippedJobs() {
+        for (count in listOf(2, 17, 30)) {
+            val run = newImageBenchmarkRun("subset", 10, "test", ImageModels.liteRt,
+                methods, 20, includeUnavailable = true, wordCount = count)
+            assertEquals(ImageModels.liteRt.size * methods.size * count, run.samples.size)
+            run.groups().forEach { group ->
+                assertEquals(ImageBenchmarkSuite.prompts.take(count), group.samples.map { it.input })
+            }
+            assertEquals(ImageModels.liteRt.size * count, run.samples.count { it.status == ImageSampleStatus.SKIPPED })
+        }
+        for (count in listOf(0, 1, 31)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                newImageBenchmarkRun("invalid", 10, "test", ImageModels.liteRt, methods, 20, wordCount = count)
+            }
+        }
+    }
+
+    @Test fun twoWordRunFinishesAfterOnlySelectedWords() = runBlocking {
+        val repo = MemoryRepository(newImageBenchmarkRun("short", 10, "test",
+            listOf(ImageModels.get("SD_TURBO")), methods, 20, wordCount = 2))
+        val called = mutableListOf<String>()
+        val runner = ImageBenchmarkRunner(repo, { _, sample ->
+            called += sample.input.word
+            result(sample) to 100L
+        }, {}, betweenSamples = {})
+        runner.run(repo.run.id) {}
+        assertEquals(listOf("apple", "banana", "apple", "banana"), called)
+        assertEquals(4, repo.run.successful)
+        assertEquals(0, repo.run.pending)
+        assertEquals(ImageRunStatus.COMPLETED, repo.run.status)
+    }
+
     @Test fun historicalProtocolKeepsPerImageLoadingBehavior() {
         val historical = plan().copy(protocol = "fresh worker/engine per image; end-to-end latency includes startup/load/encode/denoise/decode/save")
         assertFalse(historical.retainsEngine)

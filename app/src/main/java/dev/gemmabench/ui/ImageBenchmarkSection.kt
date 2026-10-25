@@ -14,6 +14,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.gemmabench.LabController
 import dev.gemmabench.LabState
@@ -23,6 +25,7 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -31,6 +34,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
     var models by rememberSaveable("litert-four-models-v1") { mutableStateOf(ImageModels.liteRt.map { it.id }.toSet()) }
     var methods by rememberSaveable { mutableStateOf(ImageMethod.entries.map { it.name }.toSet()) }
     var timeout by rememberSaveable { mutableIntStateOf(20) }
+    var wordCount by rememberSaveable { mutableIntStateOf(ImageBenchmarkSuite.MAX_WORD_COUNT) }
     var inputsExpanded by rememberSaveable { mutableStateOf(false) }
     var viewedId by rememberSaveable { mutableStateOf("") }
     var historyLimit by rememberSaveable { mutableIntStateOf(10) }
@@ -43,8 +47,15 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         if (uri != null && savePath.isNotEmpty()) controller.exportWordImage(uri, savePath)
     }
     HorizontalDivider()
-    Text("4-model · 30-word benchmark", style = MaterialTheme.typography.headlineSmall)
-    Text("One click runs 30 fixed word prompts for every selected model and method. The same word uses the same prompt and seed across comparisons.")
+    Text("4-model · $wordCount-word benchmark", style = MaterialTheme.typography.headlineSmall)
+    Text("One click runs $wordCount fixed word prompts for every selected model and method. The same word uses the same prompt and seed across comparisons.")
+    Text("Words per benchmark: $wordCount", style = MaterialTheme.typography.titleSmall)
+    Slider(value = wordCount.toFloat(), onValueChange = { wordCount = it.roundToInt() },
+        valueRange = ImageBenchmarkSuite.MIN_WORD_COUNT.toFloat()..ImageBenchmarkSuite.MAX_WORD_COUNT.toFloat(),
+        steps = ImageBenchmarkSuite.MAX_WORD_COUNT - ImageBenchmarkSuite.MIN_WORD_COUNT - 1,
+        enabled = !state.busy, modifier = Modifier.fillMaxWidth().testTag("benchmark-word-count")
+            .semantics { contentDescription = "Words per benchmark" })
+    Text("Choose 2–30 words. Smaller runs use the first $wordCount fixed prompts for faster validation.", style = MaterialTheme.typography.bodySmall)
     Text("Timings include model loading, generation and PNG saving for every image; no warm-up is excluded. FLUX generates 256 × 256 images; Bonsai, SD-Turbo and SDXL-Turbo generate 512 × 512. Compare timings alongside resolution and image quality.", style = MaterialTheme.typography.bodySmall)
     Text("Models", style = MaterialTheme.typography.titleMedium)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -98,20 +109,20 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         listOf(5, 10, 20).forEach { minutes -> FilterChip(selected = timeout == minutes,
             onClick = { timeout = minutes }, enabled = !state.busy, label = { Text("$minutes min") }) }
     }
-    TextButton(onClick = { inputsExpanded = !inputsExpanded }) { Text(if (inputsExpanded) "Hide fixed prompts" else "Preview the 30 words and prompts") }
-    if (inputsExpanded) ImageBenchmarkSuite.prompts.forEachIndexed { index, input ->
+    TextButton(onClick = { inputsExpanded = !inputsExpanded }) { Text(if (inputsExpanded) "Hide fixed prompts" else "Preview the $wordCount words and prompts") }
+    if (inputsExpanded) ImageBenchmarkSuite.prompts.take(wordCount).forEachIndexed { index, input ->
         Text("${index + 1}. ${input.word} · ${input.category} · seed ${input.seed}", style = MaterialTheme.typography.titleSmall)
         SelectionContainer { Text(input.prompt, style = MaterialTheme.typography.bodySmall) }
     }
     val runnableMethods = benchmark.methods.filter { it.method.name in methods }.map { it.method }.toSet()
     val combinations = models.sumOf { id -> benchmark.methods.count { it.method in runnableMethods && it.supports(id) } }
-    val jobs = combinations * ImageBenchmarkSuite.prompts.size
-    val skippedJobs = (models.size * runnableMethods.size - combinations) * ImageBenchmarkSuite.prompts.size
+    val jobs = combinations * wordCount
+    val skippedJobs = (models.size * runnableMethods.size - combinations) * wordCount
     Text("Only installed model/backend combinations run. TPU uses separately converted weights and sampler graphs, so a CPU/GPU/TPU comparison includes runtime and numerical differences as well as hardware. Review each image’s backend and quality score.", style = MaterialTheme.typography.bodySmall)
-    Text("$jobs images to generate · $skippedJobs unavailable jobs recorded as skipped · 30 words × $combinations runnable combinations. This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
-    Button(onClick = { viewedId = ""; controller.startImageBenchmark(models, runnableMethods, timeout) },
+    Text("$jobs images to generate · $skippedJobs unavailable jobs recorded as skipped · $wordCount words × $combinations runnable combinations. This can take hours. Keep Research Lab foreground; leaving stops the run and preserves completed images for resuming.", style = MaterialTheme.typography.bodySmall)
+    Button(onClick = { viewedId = ""; controller.startImageBenchmark(models, runnableMethods, timeout, wordCount) },
         enabled = !state.unavailable && models.isNotEmpty() && jobs > 0 && runnableMethods.isNotEmpty(),
-        modifier = Modifier.fillMaxWidth()) { Text("Run 30-word benchmark") }
+        modifier = Modifier.fillMaxWidth()) { Text("Run $wordCount-word benchmark") }
     if (state.imageBenchmarkRunning) {
         val active = benchmark.runs.firstOrNull { it.id == benchmark.activeRunId }
         val finished = active?.samples?.count { it.status in listOf(ImageSampleStatus.SUCCESS, ImageSampleStatus.FAILED, ImageSampleStatus.SKIPPED) } ?: 0
@@ -130,7 +141,7 @@ fun ImageBenchmarkSection(state: LabState, controller: LabController, selectedMo
         Text(if (displayed.retainsEngine) "One worker per combination; LiteRT graphs/environments reload per image, and those costs are included. Memory is released between combinations."
             else "Historical protocol: fresh worker and model loading for every image.", style = MaterialTheme.typography.bodySmall)
         Text(displayed.device, style = MaterialTheme.typography.labelSmall)
-        Text("${displayed.suiteVersion} · timeout ${displayed.timeoutMinutes} min/image", style = MaterialTheme.typography.labelSmall)
+        Text("${displayed.suiteVersion} · ${displayed.samples.map { it.input.word }.distinct().size} words · timeout ${displayed.timeoutMinutes} min/image", style = MaterialTheme.typography.labelSmall)
         displayed.skippedMethods.forEach { Text("${it.method.label} unavailable: ${it.reason}", style = MaterialTheme.typography.bodySmall) }
         Text("Scroll the statistics table sideways for all timing and quality columns.", style = MaterialTheme.typography.labelSmall)
         ImageBenchmarkStatistics(displayed)

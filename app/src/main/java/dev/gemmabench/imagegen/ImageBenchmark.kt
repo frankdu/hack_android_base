@@ -4,6 +4,8 @@ package dev.gemmabench.imagegen
 data class ImageBenchmarkPrompt(val word: String, val category: String, val prompt: String, val seed: Long)
 object ImageBenchmarkSuite {
     const val VERSION = "word-concepts-30-v1"
+    const val MIN_WORD_COUNT = 2
+    const val MAX_WORD_COUNT = 30
     private val style = "Clear educational illustration, bright natural colors, soft light, simple background. No writing, labels, watermark or collage."
     val prompts: List<ImageBenchmarkPrompt> = listOf(
         Triple("apple", "Fruit", "One ripe red apple with a short stem and one green leaf, centered on a plain cream background."),
@@ -67,7 +69,7 @@ data class ImageBenchmarkRun(
     val device: String, val suiteVersion: String, val samples: List<ImageBenchmarkSample>,
     val skippedMethods: List<ImageMethodSupport>, val timeoutMinutes: Int,
     val status: ImageRunStatus = ImageRunStatus.RUNNING, val finishedAtEpochMs: Long? = null,
-    val protocol: String = "model resolution (FLUX LiteRT 256x256, Iris 768x768, others 512x512); fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE for GGUF or LiteRT FP32 GPU (Bonsai text/VAE CPU), TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; worker/engine retained per model/method; all 30 words before unloading; worker termination awaited before next combination; LiteRT streams graphs; Bonsai retains its DiT during sampling; LiteRT model/environment recreated per image; TPU streams one compiled shard at a time; end-to-end latency includes startup/load on first image and encode/denoise/decode/save on every image; no warm-up excluded; 1s between samples; RSS high-water is per combination",
+    val protocol: String = "model resolution (FLUX LiteRT 256x256, Iris 768x768, others 512x512); fixed prompt/seed per word; model default steps; CPU=all CPU, GPU=Vulkan denoiser with CPU text/VAE for GGUF or LiteRT FP32 GPU (Bonsai text/VAE CPU), TPU=LiteRT AOT Tensor graphs with CPU host/unsupported partitions (compiler coverage recorded per result); seeds repeat within each runtime, not identical noise across runtimes; worker/engine retained per model/method; all selected words before unloading; worker termination awaited before next combination; LiteRT streams graphs; Bonsai retains its DiT during sampling; LiteRT model/environment recreated per image; TPU streams one compiled shard at a time; end-to-end latency includes startup/load on first image and encode/denoise/decode/save on every image; no warm-up excluded; 1s between samples; RSS high-water is per combination",
 ) {
     val retainsEngine get() = protocol.contains("worker/engine retained per model/method")
     val successful get() = samples.count { it.status == ImageSampleStatus.SUCCESS }
@@ -96,15 +98,17 @@ data class ImageBenchmarkGroup(val modelId: String, val modelName: String, val m
 fun ImageBenchmarkRun.groups(): List<ImageBenchmarkGroup> = samples.groupBy { it.modelId to it.method }
     .map { (key, values) -> ImageBenchmarkGroup(key.first, values.first().modelName, key.second, values) }
 fun newImageBenchmarkRun(id: String, now: Long, device: String, models: List<ImageModel>,
-    methods: List<ImageMethodSupport>, timeoutMinutes: Int, includeUnavailable: Boolean = false): ImageBenchmarkRun {
+    methods: List<ImageMethodSupport>, timeoutMinutes: Int, includeUnavailable: Boolean = false,
+    wordCount: Int = ImageBenchmarkSuite.MAX_WORD_COUNT): ImageBenchmarkRun {
     require(models.isNotEmpty() && models.distinctBy { it.id }.size == models.size)
     require(methods.any { it.available } && methods.distinctBy { it.method }.size == methods.size)
     require(timeoutMinutes in 1..60)
+    require(wordCount in ImageBenchmarkSuite.MIN_WORD_COUNT..ImageBenchmarkSuite.MAX_WORD_COUNT)
     val combinations = models.flatMap { model -> methods.filter { it.supports(model.id) }.map { model to it.method } }
     require(combinations.isNotEmpty()) { "No selected model/method combination is installed." }
     val pairs = if (includeUnavailable) models.flatMap { model -> methods.map { model to it.method } } else combinations
     val samples = pairs.flatMap { (model, method) ->
-        ImageBenchmarkSuite.prompts.mapIndexed { index, input ->
+        ImageBenchmarkSuite.prompts.take(wordCount).mapIndexed { index, input ->
             ImageBenchmarkSample("${model.id}-${method.name}-$index", model.id,
                 model.name, method, input, model.steps,
                 status = if (methods.first { it.method == method }.supports(model.id)) ImageSampleStatus.PENDING else ImageSampleStatus.SKIPPED,
