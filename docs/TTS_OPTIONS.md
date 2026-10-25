@@ -20,6 +20,14 @@ The [Kitten Nano INT8 model card](https://huggingface.co/KittenML/kitten-tts-nan
 
 Both local options run through [ONNX Runtime 1.31.0's Android Java/Kotlin API](https://onnxruntime.ai/docs/get-started/with-java.html), with [MIT licensing](https://github.com/microsoft/onnxruntime/blob/v1.31.0/LICENSE). Runtime and model notices are packaged under `assets/tts/`. No cloud API key, subscription, per-character fee, or server inference is required.
 
+The app removes ONNX Runtime's optional `TelemetryInitializer` provider during manifest merging
+and disables telemetry when obtaining the speech inference environment. On the Pixel 11 Pro,
+the 1.31.0 telemetry client failed at startup with a missing native
+`HttpClient.isDeviceIdCollectionEnabled` implementation; its partially constructed object's
+finalizer then threw `Receiver not registered: null`. Removing the provider prevents that
+startup path before `Application.onCreate`; disabling telemetry only in application code would
+be too late. Local speech inference continues to use the same runtime and models.
+
 ## Other options considered
 
 - [sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/tts/apk.html) offers working Android integrations and many offline model families. Its Apache-2.0 runtime license does not replace each model's own license. We chose direct ONNX execution for these two models and prepared the fixed vocabulary ahead of time, avoiding an additional native text frontend in the app.

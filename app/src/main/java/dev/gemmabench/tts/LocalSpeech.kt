@@ -87,7 +87,9 @@ data class SpeechAudio(val samples: FloatArray, val loadMs: Long, val generation
 /** Serializes session ownership; only one model remains loaded to bound memory use. */
 class LocalSpeech(private val context: Context) : AutoCloseable {
     private val pronunciation = EnglishPronunciation(context)
-    private val environment by lazy { OrtEnvironment.getEnvironment() }
+    private val environment by lazy {
+        OrtEnvironment.getEnvironment().apply { setTelemetry(false) }
+    }
     private val words by lazy {
         context.assets.open("tts/dictionary-tokens.json").bufferedReader().use {
             JsonParser.parseReader(it).asJsonObject.getAsJsonObject("words")
